@@ -449,7 +449,7 @@ for select to authenticated
 using (
   exists (
     select 1 from public.orders o
-    where o.id = order_id and o.tenant_id = tenant_id
+    where o.id = order_items.order_id and o.tenant_id = order_items.tenant_id
       and (private.is_tenant_owner(o.tenant_id) or o.reseller_id = (select auth.uid()))
   )
 );
@@ -499,8 +499,8 @@ with check (
   )
   and exists (
     select 1 from public.wallets w
-    where w.id = wallet_id
-      and w.tenant_id = tenant_id
+    where w.id = payout_requests.wallet_id
+      and w.tenant_id = payout_requests.tenant_id
       and w.user_id = (select auth.uid())
   )
 );
