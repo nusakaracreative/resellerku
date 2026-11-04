@@ -595,7 +595,7 @@ returns trigger
 language plpgsql
 security definer
 set search_path = ''
-as $
+as $$
 begin
   insert into public.users (id, full_name)
   values (
@@ -608,7 +608,7 @@ begin
   on conflict (id) do nothing;
   return new;
 end;
-$;
+$$;
 
 revoke all on function private.handle_new_auth_user() from public, anon, authenticated;
 drop trigger if exists on_auth_user_created_resellerku on auth.users;
@@ -622,14 +622,14 @@ returns trigger
 language plpgsql
 security definer
 set search_path = ''
-as $
+as $$
 begin
   insert into public.tenant_memberships (tenant_id, user_id, role, reseller_tier)
   values (new.id, new.created_by, 'owner', null)
   on conflict (tenant_id, user_id) do nothing;
   return new;
 end;
-$;
+$$;
 
 revoke all on function private.handle_new_tenant_owner() from public, anon, authenticated;
 drop trigger if exists on_tenant_created_assign_owner on public.tenants;
@@ -644,7 +644,7 @@ language sql
 stable
 security definer
 set search_path = ''
-as $
+as $$
   select (select auth.uid()) is not null
     and exists (
       select 1
@@ -657,7 +657,7 @@ as $
         and actor.role = 'owner'
         and actor.is_active = true
     );
-$;
+$$;
 
 revoke all on function private.can_view_user_profile(uuid) from public, anon;
 grant execute on function private.can_view_user_profile(uuid) to authenticated;
@@ -679,7 +679,7 @@ create or replace function private.prevent_tenant_reassignment()
 returns trigger
 language plpgsql
 set search_path = ''
-as $
+as $$
 begin
   if new.tenant_id is distinct from old.tenant_id then
     raise exception 'tenant_id is immutable; create a new row in the target tenant'
@@ -687,7 +687,7 @@ begin
   end if;
   return new;
 end;
-$;
+$$;
 
 revoke all on function private.prevent_tenant_reassignment() from public, anon, authenticated;
 
@@ -728,7 +728,7 @@ returns trigger
 language plpgsql
 security definer
 set search_path = ''
-as $
+as $$
 declare
   v_tenant_id uuid;
   v_user_id uuid;
@@ -766,7 +766,7 @@ begin
   if tg_op = 'DELETE' then return old; end if;
   return new;
 end;
-$;
+$$;
 
 revoke all on function private.protect_tenant_membership() from public, anon, authenticated;
 create trigger tenant_memberships_protect_owner
@@ -778,12 +778,12 @@ create or replace function private.reject_ledger_mutation()
 returns trigger
 language plpgsql
 set search_path = ''
-as $
+as $$
 begin
   raise exception 'this table is append-only; record a compensating entry instead'
     using errcode = '55000';
 end;
-$;
+$$;
 
 revoke all on function private.reject_ledger_mutation() from public, anon, authenticated;
 create trigger wallet_transactions_append_only
