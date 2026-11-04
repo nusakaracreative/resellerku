@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ClipboardList, Image as ImageIcon, Maximize2, RefreshCw, Search, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, ClipboardList, Download, Image as ImageIcon, Maximize2, RefreshCw, Search, ShieldCheck, X, ZoomIn, ZoomOut } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 type OrderItem = {
@@ -47,6 +47,7 @@ export default function OrdersPage() {
   const [receiptUrl, setReceiptUrl] = useState("");
   const [receiptError, setReceiptError] = useState("");
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxZoom, setLightboxZoom] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [settlementConfirmed, setSettlementConfirmed] = useState(false);
   const [approving, setApproving] = useState(false);
@@ -120,6 +121,17 @@ export default function OrdersPage() {
   useEffect(() => { void loadOrders(); }, [loadOrders]);
 
   useEffect(() => {
+    const initialSearch = new URLSearchParams(window.location.search).get("search");
+    if (initialSearch) setQuery(initialSearch);
+    const handleUniversalSearch = (event: Event) => {
+      const term = (event as CustomEvent<string>).detail;
+      if (typeof term === "string") setQuery(term);
+    };
+    window.addEventListener("resellerku:orders-search", handleUniversalSearch);
+    return () => window.removeEventListener("resellerku:orders-search", handleUniversalSearch);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     const loadReceipt = async () => {
       setReceiptUrl("");
@@ -167,6 +179,53 @@ export default function OrdersPage() {
     return statusOk && text.includes(query.toLowerCase());
   }), [orders, filter, query]);
 
+  useEffect(() => {
+    if (visibleOrders.length && !visibleOrders.some(order => order.id === selectedId)) {
+      setSelectedId(visibleOrders[0].id);
+    }
+  }, [visibleOrders, selectedId]);
+
+  const exportCsv = () => {
+    if (!visibleOrders.length) return;
+    const csvCell = (value: unknown) => {
+      let text = String(value ?? "");
+      if (/^[=+@\\-\\t\\r]/.test(text)) text = "'" + text;
+      return `"${text.replaceAll('"', '""')}"`;
+    };
+    const header = [
+      "Jenis Data", "ID Pesanan", "Nomor Pesanan", "Tanggal", "ID Reseller", "Nama Reseller",
+      "Level Reseller", "Penerima", "Subtotal", "Ongkir", "Diskon", "Total",
+      "Status Pembayaran", "Status Pesanan", "Status OCR",
+    ];
+    const rows = visibleOrders.map(order => [
+      order.id.startsWith("preview-") ? "SIMULASI" : "TRANSAKSI",
+      order.id,
+      order.order_number,
+      order.placed_at,
+      order.reseller_id,
+      order.reseller_name,
+      order.reseller_tier,
+      order.recipient_name,
+      Number(order.subtotal),
+      Number(order.shipping_cost),
+      Number(order.discount_amount),
+      Number(order.total_amount),
+      order.payment_status,
+      order.status,
+      order.receipt_ocr_status,
+    ]);
+    const csv = [header, ...rows].map(row => row.map(csvCell).join(",")).join("\\r\\n");
+    const blob = new Blob(["\\uFEFF", csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `resellerku-rekap-pesanan-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   const handleApprove = async () => {
     if (!selected || isPreview || !settlementConfirmed) return;
     setApproving(true);
@@ -202,7 +261,7 @@ export default function OrdersPage() {
     <div className="space-y-6">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div><p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#FF8058]">Transaction operations</p><h1 className="mt-2 text-3xl font-bold tracking-tight">Manajemen Pesanan</h1><p className="mt-2 text-sm text-slate-400">Periksa bukti pembayaran, hasil OCR, dan tindak lanjut pengiriman.</p></div>
-        <div className="flex items-center gap-2"><span className="pill pill-muted"><ClipboardList size={13} strokeWidth={1.5} /> {orders.length} pesanan</span>{isPreview && <span className="pill pill-amber">MODE SIMULASI</span>}<button onClick={() => void loadOrders()} className="btn-secondary"><RefreshCw size={14} strokeWidth={1.5} className={loading ? "animate-spin text-[#FF5722]" : "text-gray-400"} /> Refresh</button></div>
+        <div className="flex flex-wrap items-center gap-2"><span className="pill pill-muted"><ClipboardList size={13} strokeWidth={1.5} /> {orders.length} pesanan</span>{isPreview && <span className="pill pill-amber">MODE SIMULASI</span>}<button type="button" onClick={exportCsv} disabled={loading || visibleOrders.length === 0} className="btn-secondary disabled:cursor-not-allowed disabled:opacity-40"><Download size={14} strokeWidth={1.5} className="text-[#FF5722] drop-shadow-[0_0_6px_rgba(255,87,34,.2)]" /> Export ke CSV</button><button onClick={() => void loadOrders()} className="btn-secondary"><RefreshCw size={14} strokeWidth={1.5} className={loading ? "animate-spin text-[#FF5722]" : "text-gray-400"} /> Refresh</button></div>
       </header>
 
       {notice && <div role="status" className="rounded-xl border border-emerald-400/20 bg-emerald-400/[.08] px-4 py-3 text-sm text-emerald-200">{notice}</div>}
@@ -253,7 +312,7 @@ export default function OrdersPage() {
                 <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
                   <div className="surface-muted flex min-h-[420px] items-center justify-center overflow-hidden rounded-xl border border-white/5 bg-[#0a2028]/70 p-4 shadow-lg">
                     {receiptUrl ? (
-                      <button type="button" onClick={() => setLightboxOpen(true)} aria-label="Perbesar bukti transfer" className="group relative flex h-[400px] w-full max-w-[300px] items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-[#071a21] shadow-xl">
+                      <button type="button" onClick={() => { setLightboxZoom(false); setLightboxOpen(true); }} aria-label="Perbesar bukti transfer" className="group relative flex h-[400px] w-full max-w-[300px] items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-[#071a21] shadow-xl">
                         <img src={receiptUrl} alt="Bukti pembayaran pesanan" className="h-full max-h-[400px] w-full object-contain transition duration-300 group-hover:scale-[1.015]" />
                         <span className="absolute bottom-3 right-3 inline-flex items-center gap-2 rounded-lg border border-white/10 bg-[#0D2129]/90 px-3 py-2 text-[10px] font-semibold text-white opacity-0 shadow-lg backdrop-blur-md transition group-hover:opacity-100">
                           <Maximize2 size={13} strokeWidth={1.5} className="text-[#FF5722]" /> Perbesar struk
@@ -315,26 +374,40 @@ export default function OrdersPage() {
           role="dialog"
           aria-modal="true"
           aria-label="Bukti transfer ukuran penuh"
-          onClick={() => setLightboxOpen(false)}
+          onClick={() => { setLightboxOpen(false); setLightboxZoom(false); }}
           className="fixed inset-0 z-[100] flex items-center justify-center bg-[#02090d]/85 p-4 backdrop-blur-xl sm:p-8"
         >
-          <button
-            type="button"
-            onClick={() => setLightboxOpen(false)}
-            aria-label="Tutup tampilan bukti transfer"
-            className="absolute right-4 top-4 z-10 grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-[#15303b]/90 text-white shadow-xl transition hover:border-[#FF5722]/40 hover:text-[#FF5722] sm:right-7 sm:top-7"
-          >
-            <X size={20} strokeWidth={1.5} />
-          </button>
-          <div className="flex h-full w-full items-center justify-center" onClick={event => event.stopPropagation()}>
-            <img
-              src={receiptUrl}
-              alt="Bukti pembayaran pesanan ukuran penuh"
-              className="max-h-[92vh] max-w-[min(92vw,760px)] rounded-xl border border-white/10 bg-[#071a21] object-contain shadow-2xl shadow-black/50"
-            />
+          <div className="absolute right-4 top-4 z-10 flex items-center gap-2 sm:right-7 sm:top-7">
+            <button
+              type="button"
+              onClick={event => { event.stopPropagation(); setLightboxZoom(current => !current); }}
+              aria-label={lightboxZoom ? "Kembalikan ukuran struk" : "Perbesar struk"}
+              title={lightboxZoom ? "Kembalikan ukuran" : "Perbesar"}
+              className="grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-[#15303b]/90 text-white shadow-xl transition hover:border-[#FF5722]/40 hover:text-[#FF5722]"
+            >
+              {lightboxZoom ? <ZoomOut size={19} strokeWidth={1.5} /> : <ZoomIn size={19} strokeWidth={1.5} />}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setLightboxOpen(false); setLightboxZoom(false); }}
+              aria-label="Tutup tampilan bukti transfer"
+              className="grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-[#15303b]/90 text-white shadow-xl transition hover:border-[#FF5722]/40 hover:text-[#FF5722]"
+            >
+              <X size={20} strokeWidth={1.5} />
+            </button>
+          </div>
+          <div className="h-full w-full overflow-auto" onClick={event => event.stopPropagation()}>
+            <div className={lightboxZoom ? "flex min-h-full min-w-full items-start justify-center py-16" : "flex min-h-full items-center justify-center"}>
+              <img
+                src={receiptUrl}
+                alt="Bukti pembayaran pesanan ukuran penuh"
+                onClick={() => setLightboxZoom(current => !current)}
+                className={`rounded-xl border border-white/10 bg-[#071a21] object-contain shadow-2xl shadow-black/50 ${lightboxZoom ? "h-auto w-[min(1100px,120vw)] max-w-none cursor-zoom-out" : "max-h-[92vh] max-w-[min(92vw,760px)] cursor-zoom-in"}`}
+              />
+            </div>
           </div>
           <p className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-[#102832]/90 px-4 py-2 text-[10px] text-slate-400 backdrop-blur-lg">
-            Klik area luar gambar atau tekan Esc untuk menutup
+            Klik gambar atau tombol zoom untuk memperbesar · Tekan Esc untuk menutup
           </p>
         </div>
       )}
