@@ -269,7 +269,7 @@ export default function OrdersPage() {
               <section className="border-t border-white/[.08] pt-5">
                 <div className="mb-3 flex items-center gap-2"><span className="grid h-6 w-6 place-items-center rounded-lg bg-white/[.06] text-[11px] font-bold text-[#FF8058]">04</span><h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">Keputusan owner</h3></div>
                 <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-300/15 bg-amber-300/[.06] p-3"><span className="text-amber-300">!</span><p className="text-[11px] leading-5 text-amber-100/90">Persetujuan hanya boleh dilakukan setelah owner memastikan dana benar-benar masuk melalui mutasi rekening atau kanal pembayaran resmi. Hasil OCR tidak pernah otomatis mengesahkan pembayaran.</p></div>
-                <button disabled={isPreview || !pendingReview} onClick={() => { setSettlementConfirmed(false); setConfirmOpen(true); }} className="btn-primary w-full py-4 text-xs tracking-[.04em] disabled:cursor-not-allowed disabled:opacity-40">{isPreview ? "AKSI DINONAKTIFKAN · DATA SIMULASI" : pendingReview ? "SETUJUI & PROSES PENGIRIMAN" : "PEMBAYARAN SUDAH DIKONFIRMASI"}</button>
+                <button disabled={isPreview || !pendingReview} onClick={() => { setSettlementConfirmed(false); setConfirmOpen(true); }} className="btn-primary w-full py-4 text-xs tracking-[.04em] disabled:cursor-not-allowed disabled:opacity-40">{isPreview ? "AKSI DINONAKTIFKAN · DATA SIMULASI" : pendingReview ? "SETUJUI & PROSES PENGIRIMAN" : "PEMBAYARAN SUDAH DIKONFIRMASI"}</button>\n                {!isPreview && pendingReview && <p className="mt-2 text-[10px] leading-5 text-slate-500">Saat ini aksi mengubah status ke Processing. Penerbitan resi dan pemanggilan kurir belum terintegrasi.</p>}
               </section>
             </div>
           )}
@@ -281,7 +281,7 @@ export default function OrdersPage() {
           <div role="dialog" aria-modal="true" aria-labelledby="approval-title" className="surface w-full max-w-lg rounded-2xl p-6">
             <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#FF8058]">Payment settlement check</p>
             <h2 id="approval-title" className="mt-2 text-xl font-bold">Konfirmasi pembayaran</h2>
-            <p className="mt-3 text-sm leading-6 text-slate-400">Tindakan ini akan mengubah status pembayaran menjadi verified dan status pesanan menjadi processing untuk pesanan <b className="text-white">{selected.order_number}</b>.</p>
+            <p className="mt-3 text-sm leading-6 text-slate-400">Tindakan ini akan mengubah status pembayaran menjadi verified dan status pesanan menjadi processing untuk pesanan <b className="text-white">{selected.order_number}</b>. Tindakan ini belum menerbitkan resi atau memesan kurir.</p>
             <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-300/20 bg-amber-300/[.06] p-4 text-xs leading-5 text-amber-100">
               <input type="checkbox" checked={settlementConfirmed} onChange={e => setSettlementConfirmed(e.target.checked)} className="mt-1 accent-[#FF5722]" />
               <span>Saya telah memeriksa rekening/mutasi atau kanal pembayaran resmi dan memastikan dana sebesar <b>{money(selected.total_amount)}</b> benar-benar telah diterima.</span>
