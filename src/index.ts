@@ -257,36 +257,50 @@ async function dependencyHealth(request: Request, env: Env): Promise<Response> {
     (async () => {
       try {
         const response = await fetch(
-          "https://generativelanguage.googleapis.com/" + version + "/models/" + encodeURIComponent(model),
+          "https://generativelanguage.googleapis.com/" + version +
+            "/models/" + encodeURIComponent(model) + ":generateContent",
           {
-            method: "GET",
-            headers: { "x-goog-api-key": env.GEMINI_API_KEY },
-            signal: AbortSignal.timeout(10_000),
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key": env.GEMINI_API_KEY,
+            },
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text: "Resellerku health check. Reply OK." }] }],
+              generationConfig: {
+                temperature: 0,
+                maxOutputTokens: 64,
+                thinkingConfig: { thinkingLevel: "minimal" },
+              },
+            }),
+            signal: AbortSignal.timeout(15_000),
           },
         );
         const payload = await response.json().catch(() => null) as {
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>;
           error?: { status?: string; code?: number };
-          supportedGenerationMethods?: string[];
         } | null;
-        const supportsGenerateContent =
-          response.ok && (payload?.supportedGenerationMethods ?? []).includes("generateContent");
+        const candidate = payload?.candidates?.[0];
+        const hasGeneratedContent = Boolean(candidate && candidate.finishReason !== "MAX_TOKENS" &&
+          (candidate.content?.parts ?? []).some((part) => typeof part.text === "string" && part.text.length > 0));
         let reason = "available";
         if (!response.ok) {
-          if (response.status === 400) reason = "bad_request";
+          if (response.status === 400 && payload?.error?.status === "FAILED_PRECONDITION") reason = "failed_precondition_free_tier_or_project_prerequisite";
+          else if (response.status === 400) reason = "bad_request";
           else if (response.status === 401) reason = "invalid_api_key";
           else if (response.status === 403) reason = "permission_denied_check_key_restrictions_project_or_billing";
           else if (response.status === 404) reason = "model_not_found";
           else if (response.status === 429) reason = "quota_or_rate_limit";
           else reason = "google_api_error";
-        } else if (!supportsGenerateContent) {
-          reason = "model_does_not_support_generate_content";
+        } else if (!hasGeneratedContent) {
+          reason = "generation_returned_no_text";
         }
         return {
-          ok: supportsGenerateContent,
+          ok: response.ok && hasGeneratedContent,
           http_status: response.status,
           reason,
           api_error_status: payload?.error?.status ?? null,
-          supports_generate_content: supportsGenerateContent,
+          supports_generate_content: response.ok && Boolean(candidate),
         };
       } catch {
         return {
@@ -296,7 +310,6 @@ async function dependencyHealth(request: Request, env: Env): Promise<Response> {
           api_error_status: null,
           supports_generate_content: false,
         };
-      }
     })(),
   ]);
 
