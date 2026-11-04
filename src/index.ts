@@ -310,6 +310,7 @@ async function dependencyHealth(request: Request, env: Env): Promise<Response> {
           api_error_status: null,
           supports_generate_content: false,
         };
+      }
     })(),
   ]);
 
