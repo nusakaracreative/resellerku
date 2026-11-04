@@ -588,7 +588,7 @@ export default {
         return json(request, env, { ok: false, error: "Pemeriksaan dependency gagal." }, 503);
       }
     }
-    const ownerOrderMatch = url.pathname.match(/^\\/api\\/orders\\/([0-9a-f-]{36})\\/(receipt-url|approve-payment)$/i);
+    const ownerOrderMatch = url.pathname.match(new RegExp("^/api/orders/([0-9a-f-]{36})/(receipt-url|approve-payment)$", "i"));
     if (ownerOrderMatch) {
       const orderId = ownerOrderMatch[1];
       const action = ownerOrderMatch[2] as "receipt-url" | "approve-payment";
