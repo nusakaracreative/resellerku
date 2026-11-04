@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, CheckCircle2, ClipboardList, Image as ImageIcon, Maximize2, RefreshCw, Search, ShieldCheck, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 type OrderItem = {
@@ -45,6 +46,7 @@ export default function OrdersPage() {
   const [query, setQuery] = useState("");
   const [receiptUrl, setReceiptUrl] = useState("");
   const [receiptError, setReceiptError] = useState("");
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [settlementConfirmed, setSettlementConfirmed] = useState(false);
   const [approving, setApproving] = useState(false);
@@ -146,6 +148,19 @@ export default function OrdersPage() {
     return () => { cancelled = true; };
   }, [selected?.id, selected?.receipt_object_path]);
 
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setLightboxOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "";
+    };
+  }, [lightboxOpen]);
+
   const visibleOrders = useMemo(() => orders.filter(order => {
     const statusOk = filter === "all" || (filter === "review" ? order.payment_status === "submitted" || order.status === "payment_review" : order.payment_status === "verified");
     const text = `${order.order_number} ${order.reseller_name} ${order.recipient_name}`.toLowerCase();
@@ -187,7 +202,7 @@ export default function OrdersPage() {
     <div className="space-y-6">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div><p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#FF8058]">Transaction operations</p><h1 className="mt-2 text-3xl font-bold tracking-tight">Manajemen Pesanan</h1><p className="mt-2 text-sm text-slate-400">Periksa bukti pembayaran, hasil OCR, dan tindak lanjut pengiriman.</p></div>
-        <div className="flex items-center gap-2"><span className="pill pill-muted">{orders.length} pesanan</span>{isPreview && <span className="pill pill-amber">MODE SIMULASI</span>}<button onClick={() => void loadOrders()} className="btn-secondary">↻ Refresh</button></div>
+        <div className="flex items-center gap-2"><span className="pill pill-muted"><ClipboardList size={13} strokeWidth={1.5} /> {orders.length} pesanan</span>{isPreview && <span className="pill pill-amber">MODE SIMULASI</span>}<button onClick={() => void loadOrders()} className="btn-secondary"><RefreshCw size={14} strokeWidth={1.5} className={loading ? "animate-spin text-[#FF5722]" : "text-gray-400"} /> Refresh</button></div>
       </header>
 
       {notice && <div role="status" className="rounded-xl border border-emerald-400/20 bg-emerald-400/[.08] px-4 py-3 text-sm text-emerald-200">{notice}</div>}
@@ -197,14 +212,14 @@ export default function OrdersPage() {
         <section className="surface flex min-h-0 flex-col overflow-hidden rounded-2xl">
           <div className="border-b border-white/[.08] p-4">
             <div className="flex items-center justify-between"><h2 className="font-bold">Antrean verifikasi</h2><span className="text-[11px] text-slate-500">{visibleOrders.length} ditampilkan</span></div>
-            <input className="field mt-4 text-sm" placeholder="Cari ID atau nama reseller…" value={query} onChange={e => setQuery(e.target.value)} />
+            <div className="relative mt-4"><Search size={16} strokeWidth={1.5} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" /><input className="field pl-10 text-sm" placeholder="Cari ID atau nama reseller…" value={query} onChange={e => setQuery(e.target.value)} /></div>
             <div className="mt-3 flex gap-2">
               {[["all","Semua"],["review","Perlu ditinjau"],["verified","Terverifikasi"]].map(([value,label]) => <button key={value} onClick={() => setFilter(value)} className={`rounded-lg px-3 py-2 text-[10px] font-bold transition ${filter===value ? "bg-[#FF5722] text-white" : "bg-white/[.04] text-slate-400 hover:bg-white/[.08]"}`}>{label}</button>)}
             </div>
           </div>
           <div className="order-queue scrollbar-thin flex-1 space-y-2 overflow-y-auto p-3">
             {loading ? <div className="p-6 text-center text-xs text-slate-500">Memuat data pesanan…</div> : visibleOrders.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-white/10 p-7 text-center"><div className="text-3xl text-slate-600">▤</div><p className="mt-3 text-sm font-semibold text-slate-300">Belum ada pesanan</p><p className="mt-1 text-xs leading-5 text-slate-500">Antrean akan muncul otomatis ketika reseller membuat checkout.</p></div>
+              <div className="rounded-xl border border-dashed border-white/10 p-7 text-center"><ClipboardList size={26} strokeWidth={1.5} className="mx-auto text-gray-400" /><p className="mt-3 text-sm font-semibold text-slate-300">Belum ada pesanan</p><p className="mt-1 text-xs leading-5 text-slate-500">Antrean akan muncul otomatis ketika reseller membuat checkout.</p></div>
             ) : visibleOrders.map(order => (
               <button type="button" key={order.id} onClick={() => setSelectedId(order.id)} className={`w-full rounded-xl border p-4 text-left transition ${selected?.id===order.id ? "border-[#FF5722] bg-[#FF5722]/[.08] shadow-[0_0_0_1px_rgba(255,87,34,.16)]" : "border-white/[.06] bg-[#0b2028]/50 hover:border-white/20 hover:bg-white/[.035]"}`}>
                 <div className="flex items-start justify-between gap-2"><span className="text-[11px] font-extrabold tracking-wide text-slate-200">{order.order_number}</span><span className={`pill ${order.payment_status==="verified" ? "pill-green" : "pill-amber"}`}>{order.payment_status==="verified" ? "LUNAS" : "REVIEW"}</span></div>
@@ -218,7 +233,7 @@ export default function OrdersPage() {
 
         <section className="surface scrollbar-thin min-h-0 min-w-0 overflow-y-auto rounded-2xl p-5 sm:p-6">
           {!selected ? (
-            <div className="grid min-h-[590px] place-items-center text-center"><div><div className="text-4xl text-slate-700">◎</div><p className="mt-3 font-semibold text-slate-300">Pilih pesanan dari antrean</p><p className="mt-1 text-xs text-slate-500">Detail pesanan dan bukti OCR akan ditampilkan di sini.</p></div></div>
+            <div className="grid min-h-[590px] place-items-center text-center"><div><ClipboardList size={30} strokeWidth={1.5} className="mx-auto text-gray-400" /><p className="mt-3 font-semibold text-slate-300">Pilih pesanan dari antrean</p><p className="mt-1 text-xs text-slate-500">Detail pesanan dan bukti OCR akan ditampilkan di sini.</p></div></div>
           ) : (
             <div className="space-y-6">
               <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/[.08] pb-5">
@@ -236,8 +251,26 @@ export default function OrdersPage() {
               <section>
                 <div className="mb-3 flex items-center gap-2"><span className="grid h-6 w-6 place-items-center rounded-lg bg-white/[.06] text-[11px] font-bold text-[#FF8058]">02</span><h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">Validasi bukti pembayaran · Gemini OCR</h3></div>
                 <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
-                  <div className="surface-muted flex min-h-[230px] items-center justify-center overflow-hidden rounded-xl p-3">
-                    {receiptUrl ? <a href={receiptUrl} target="_blank" rel="noreferrer" className="block h-full w-full"><img src={receiptUrl} alt="Bukti pembayaran pesanan" className="mx-auto max-h-[280px] w-full rounded-lg object-contain" /></a> : selected.id.startsWith("preview-") ? <div className="flex h-[210px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-white/15 bg-[#102b35]"><span className="text-4xl text-slate-500">▧</span><p className="mt-3 text-xs font-semibold text-slate-300">Preview bukti transfer</p><p className="mt-1 text-[10px] text-slate-500">Data gambar simulasi</p></div> : <div className="px-4 text-center"><span className="text-3xl text-slate-600">▧</span><p className="mt-2 text-xs font-semibold text-slate-400">{receiptError || "Bukti transfer belum tersedia."}</p></div>}
+                  <div className="surface-muted flex min-h-[420px] items-center justify-center overflow-hidden rounded-xl border border-white/5 bg-[#0a2028]/70 p-4 shadow-lg">
+                    {receiptUrl ? (
+                      <button type="button" onClick={() => setLightboxOpen(true)} aria-label="Perbesar bukti transfer" className="group relative flex h-[400px] w-full max-w-[300px] items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-[#071a21] shadow-xl">
+                        <img src={receiptUrl} alt="Bukti pembayaran pesanan" className="h-full max-h-[400px] w-full object-contain transition duration-300 group-hover:scale-[1.015]" />
+                        <span className="absolute bottom-3 right-3 inline-flex items-center gap-2 rounded-lg border border-white/10 bg-[#0D2129]/90 px-3 py-2 text-[10px] font-semibold text-white opacity-0 shadow-lg backdrop-blur-md transition group-hover:opacity-100">
+                          <Maximize2 size={13} strokeWidth={1.5} className="text-[#FF5722]" /> Perbesar struk
+                        </span>
+                      </button>
+                    ) : selected.id.startsWith("preview-") ? (
+                      <div className="flex h-[400px] w-full max-w-[300px] flex-col items-center justify-center rounded-lg border border-dashed border-white/15 bg-[#102b35]">
+                        <ImageIcon size={28} strokeWidth={1.5} className="text-gray-400" />
+                        <p className="mt-3 text-xs font-semibold text-slate-300">Preview bukti transfer</p>
+                        <p className="mt-1 text-[10px] text-slate-500">Data gambar simulasi · Portrait</p>
+                      </div>
+                    ) : (
+                      <div className="px-4 text-center">
+                        <ImageIcon size={26} strokeWidth={1.5} className="mx-auto text-gray-400" />
+                        <p className="mt-2 text-xs font-semibold text-slate-400">{receiptError || "Bukti transfer belum tersedia."}</p>
+                      </div>
+                    )}
                   </div>
                   <div className="rounded-xl border border-white/[.08] bg-[#0b2028]/65 p-4">
                     <div className="flex items-center justify-between gap-2"><p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-500">Hasil ekstraksi</p><span className={`pill ${amountMatched ? "pill-green" : "pill-amber"}`}>{amountMatched ? "NOMINAL COCOK" : titleCase(selected.receipt_ocr_status)}</span></div>
@@ -254,7 +287,7 @@ export default function OrdersPage() {
                 <div className="overflow-x-auto rounded-xl border border-white/[.08]">
                   <table className="w-full min-w-[470px] text-left text-xs">
                     <thead className="bg-white/[.035] text-[10px] uppercase tracking-wider text-slate-500"><tr><th className="px-4 py-3">Produk</th><th className="px-4 py-3 text-right">Qty</th><th className="px-4 py-3 text-right">Harga</th><th className="px-4 py-3 text-right">Subtotal</th></tr></thead>
-                    <tbody>{selected.items.map(item => <tr key={item.id} className="border-t border-white/[.06]"><td className="px-4 py-3"><p className="font-semibold text-slate-200">{item.product_name_snapshot}</p><p className="mt-1 text-[10px] text-slate-600">{item.sku_snapshot ?? "—"}</p></td><td className="px-4 py-3 text-right text-slate-300">{item.quantity}</td><td className="px-4 py-3 text-right text-slate-300">{money(item.unit_price)}</td><td className="px-4 py-3 text-right font-semibold text-slate-100">{money(item.line_total)}</td></tr>)}</tbody>
+                    <tbody>{selected.items.map(item => <tr key={item.id} className="border-t border-white/[.06]"><td className="px-4 py-3"><p className="font-semibold text-white">{item.product_name_snapshot}</p><p className="mt-1 text-[10px] text-slate-600">{item.sku_snapshot ?? "—"}</p></td><td className="px-4 py-3 text-right text-slate-300">{item.quantity}</td><td className="px-4 py-3 text-right text-slate-300">{money(item.unit_price)}</td><td className="px-4 py-3 text-right font-semibold text-white tabular-nums">{money(item.line_total)}</td></tr>)}</tbody>
                     {selected.items.length===0 && <tbody><tr><td colSpan={4} className="px-4 py-6 text-center text-slate-500">Detail item tidak tersedia.</td></tr></tbody>}
                   </table>
                 </div>
@@ -262,13 +295,13 @@ export default function OrdersPage() {
                   <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{money(selected.subtotal)}</span></div>
                   <div className="flex justify-between text-slate-500"><span>Ongkir</span><span>{money(selected.shipping_cost)}</span></div>
                   <div className="flex justify-between text-slate-500"><span>Diskon</span><span>− {money(selected.discount_amount)}</span></div>
-                  <div className="flex justify-between border-t border-white/[.08] pt-3 text-sm font-extrabold"><span>Total</span><span>{money(selected.total_amount)}</span></div>
+                  <div className="flex justify-between border-t border-white/[.08] pt-3 text-sm font-bold text-white"><span>Total</span><span className="text-base font-bold tabular-nums text-white">{money(selected.total_amount)}</span></div>
                 </div>
               </section>
 
               <section className="border-t border-white/[.08] pt-5">
                 <div className="mb-3 flex items-center gap-2"><span className="grid h-6 w-6 place-items-center rounded-lg bg-white/[.06] text-[11px] font-bold text-[#FF8058]">04</span><h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">Keputusan owner</h3></div>
-                <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-300/15 bg-amber-300/[.06] p-3"><span className="text-amber-300">!</span><p className="text-[11px] leading-5 text-amber-100/90">Persetujuan hanya boleh dilakukan setelah owner memastikan dana benar-benar masuk melalui mutasi rekening atau kanal pembayaran resmi. Hasil OCR tidak pernah otomatis mengesahkan pembayaran.</p></div>
+                <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-300/15 bg-amber-300/[.06] p-3"><AlertTriangle size={17} strokeWidth={1.5} className="mt-0.5 shrink-0 text-amber-300" /><p className="text-[11px] leading-5 text-amber-100/90">Persetujuan hanya boleh dilakukan setelah owner memastikan dana benar-benar masuk melalui mutasi rekening atau kanal pembayaran resmi. Hasil OCR tidak pernah otomatis mengesahkan pembayaran.</p></div>
                 <button disabled={isPreview || !pendingReview} onClick={() => { setSettlementConfirmed(false); setConfirmOpen(true); }} className="btn-primary w-full py-4 text-xs tracking-[.04em] disabled:cursor-not-allowed disabled:opacity-40">{isPreview ? "AKSI DINONAKTIFKAN · DATA SIMULASI" : pendingReview ? "SETUJUI & PROSES PENGIRIMAN" : "PEMBAYARAN SUDAH DIKONFIRMASI"}</button>
                 {!isPreview && pendingReview && <p className="mt-2 text-[10px] leading-5 text-slate-500">Saat ini aksi mengubah status ke Processing. Penerbitan resi dan pemanggilan kurir belum terintegrasi.</p>}
               </section>
@@ -276,6 +309,35 @@ export default function OrdersPage() {
           )}
         </section>
       </div>
+
+      {lightboxOpen && receiptUrl && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Bukti transfer ukuran penuh"
+          onClick={() => setLightboxOpen(false)}
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-[#02090d]/85 p-4 backdrop-blur-xl sm:p-8"
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxOpen(false)}
+            aria-label="Tutup tampilan bukti transfer"
+            className="absolute right-4 top-4 z-10 grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-[#15303b]/90 text-white shadow-xl transition hover:border-[#FF5722]/40 hover:text-[#FF5722] sm:right-7 sm:top-7"
+          >
+            <X size={20} strokeWidth={1.5} />
+          </button>
+          <div className="flex h-full w-full items-center justify-center" onClick={event => event.stopPropagation()}>
+            <img
+              src={receiptUrl}
+              alt="Bukti pembayaran pesanan ukuran penuh"
+              className="max-h-[92vh] max-w-[min(92vw,760px)] rounded-xl border border-white/10 bg-[#071a21] object-contain shadow-2xl shadow-black/50"
+            />
+          </div>
+          <p className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-[#102832]/90 px-4 py-2 text-[10px] text-slate-400 backdrop-blur-lg">
+            Klik area luar gambar atau tekan Esc untuk menutup
+          </p>
+        </div>
+      )}
 
       {confirmOpen && selected && (
         <div className="fixed inset-0 z-[80] grid place-items-center bg-black/75 p-4 backdrop-blur-sm">
