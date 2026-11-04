@@ -1,0 +1,164 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState, type ReactNode } from "react";
+import { createClient } from "@/lib/supabase/client";
+
+const navigation = [
+  { href: "/", label: "Beranda", icon: "⌂" },
+  { href: "/orders", label: "Pesanan", icon: "▤" },
+  { href: "/catalog", label: "Katalog", icon: "▦" },
+  { href: "/assets", label: "Asset Hub", icon: "▧" },
+];
+
+export function DashboardShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const [busy, setBusy] = useState(pathname !== "/login");
+  const [allowed, setAllowed] = useState(pathname === "/login");
+  const [email, setEmail] = useState("");
+  const [tenantName, setTenantName] = useState("Workspace");
+  const [pendingCount, setPendingCount] = useState<number | null>(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    if (pathname === "/login") {
+      setBusy(false);
+      setAllowed(true);
+      return;
+    }
+
+    let alive = true;
+    const checkAccess = async () => {
+      try {
+        const supabase = createClient();
+        const { data: { user }, error } = await supabase.auth.getUser();
+        if (error || !user) {
+          router.replace("/login");
+          return;
+        }
+
+        const { data: memberships, error: memberError } = await supabase
+          .from("tenant_memberships")
+          .select("tenant_id")
+          .eq("user_id", user.id)
+          .eq("role", "owner")
+          .eq("is_active", true)
+          .limit(2);
+
+        if (memberError || !memberships?.length) {
+          router.replace("/login?reason=owner-only");
+          return;
+        }
+
+        const tenantId = memberships[0].tenant_id as string;
+        const [{ data: tenant }, { count }] = await Promise.all([
+          supabase.from("tenants").select("name").eq("id", tenantId).maybeSingle(),
+          supabase.from("orders").select("id", { count: "exact", head: true })
+            .eq("tenant_id", tenantId).in("status", ["awaiting_payment", "payment_review"]),
+        ]);
+
+        if (alive) {
+          setEmail(user.email ?? "");
+          setTenantName(tenant?.name ?? "Workspace");
+          setPendingCount(count ?? 0);
+          setAllowed(true);
+        }
+      } catch {
+        if (alive) router.replace("/login");
+      } finally {
+        if (alive) setBusy(false);
+      }
+    };
+    void checkAccess();
+    return () => { alive = false; };
+  }, [pathname, router]);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  const signOut = async () => {
+    await createClient().auth.signOut();
+    router.replace("/login");
+    router.refresh();
+  };
+
+  if (pathname === "/login") return <>{children}</>;
+  if (busy || !allowed) {
+    return (
+      <main className="grid min-h-screen place-items-center px-6">
+        <div className="surface rounded-2xl px-8 py-7 text-center">
+          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-[#FF5722]" />
+          <p className="text-sm text-slate-300">Memverifikasi akses Business Owner…</p>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <div className="dashboard-grid min-h-screen">
+      <button
+        type="button"
+        aria-label="Buka navigasi"
+        onClick={() => setMobileOpen(!mobileOpen)}
+        className="fixed left-4 top-4 z-50 rounded-xl border border-white/10 bg-[#15303b] px-3 py-2 text-white lg:hidden"
+      >☰</button>
+      {mobileOpen && <button aria-label="Tutup navigasi" onClick={() => setMobileOpen(false)} className="fixed inset-0 z-30 bg-black/60 lg:hidden" />}
+      <aside className={`fixed inset-y-0 left-0 z-40 flex w-[250px] flex-col border-r border-white/[.08] bg-[#0b1d24]/95 px-4 py-5 backdrop-blur-xl transition-transform lg:translate-x-0 ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}>
+        <Link href="/" className="mb-9 flex items-center gap-3 px-2">
+          <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#FF5722] text-lg font-black text-white shadow-lg shadow-orange-950/30">R</span>
+          <span>
+            <span className="block text-[16px] font-extrabold tracking-wide text-white">RESELLERKU</span>
+            <span className="block text-[10px] font-semibold uppercase tracking-[.22em] text-slate-500">by Nusakara</span>
+          </span>
+        </Link>
+
+        <div className="mb-5 px-2">
+          <p className="mb-2 text-[10px] font-bold uppercase tracking-[.2em] text-slate-600">Workspace</p>
+          <div className="rounded-xl border border-white/[.07] bg-white/[.035] px-3 py-3">
+            <p className="truncate text-sm font-semibold text-slate-200">{tenantName}</p>
+            <p className="mt-1 text-[10px] uppercase tracking-wider text-emerald-400">Business Owner</p>
+          </div>
+        </div>
+
+        <p className="mb-3 px-2 text-[10px] font-bold uppercase tracking-[.2em] text-slate-600">Menu Utama</p>
+        <nav className="space-y-1">
+          {navigation.map((item) => {
+            const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+            return (
+              <Link key={item.href} href={item.href}
+                className={`group flex items-center justify-between rounded-xl px-3 py-3 transition ${active ? "border border-orange-400/20 bg-orange-500/[.11] text-white" : "border border-transparent text-slate-400 hover:bg-white/[.045] hover:text-white"}`}>
+                <span className="flex items-center gap-3">
+                  <span className={`grid h-7 w-7 place-items-center rounded-lg text-lg ${active ? "bg-[#FF5722] text-white" : "bg-white/[.05] text-slate-400 group-hover:text-white"}`}>{item.icon}</span>
+                  <span className="text-[13px] font-semibold">{item.label}</span>
+                </span>
+                {item.href === "/orders" && pendingCount !== null && (
+                  <span className="rounded-full bg-[#FF5722] px-2 py-0.5 text-[10px] font-extrabold text-white">{pendingCount}</span>
+                )}
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div className="mt-auto border-t border-white/[.08] pt-4">
+          <div className="flex items-center gap-3 rounded-xl px-2 py-3">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#234653] text-xs font-bold text-white">{(email[0] ?? "O").toUpperCase()}</div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-semibold text-slate-200">{email || "Owner"}</p>
+              <p className="mt-0.5 text-[10px] text-slate-500">Akun terverifikasi</p>
+            </div>
+          </div>
+          <button onClick={signOut} className="mt-1 w-full rounded-xl px-3 py-2 text-left text-xs font-semibold text-slate-500 transition hover:bg-white/[.04] hover:text-white">↪ Keluar dari dashboard</button>
+        </div>
+      </aside>
+
+      <main className="min-h-screen lg:pl-[250px]">
+        <div className="mx-auto max-w-[1680px] px-4 pb-10 pt-16 sm:px-6 lg:px-8 lg:pt-8">
+          {children}
+        </div>
+      </main>
+    </div>
+  );
+}
