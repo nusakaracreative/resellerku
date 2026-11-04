@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, ClipboardList, Image as ImageIcon, Maximize2, RefreshCw, Search, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, ClipboardList, Image as ImageIcon, Maximize2, RefreshCw, Search, ShieldCheck, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 type OrderItem = {
@@ -292,7 +292,7 @@ export default function OrdersPage() {
                   </table>
                 </div>
                 <div className="ml-auto mt-3 max-w-[260px] space-y-2 text-xs">
-                  <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{money(selected.subtotal)}</span></div>
+                  <div className="flex justify-between text-xs font-semibold text-white"><span>Subtotal</span><span className="tabular-nums text-white">{money(selected.subtotal)}</span></div>
                   <div className="flex justify-between text-slate-500"><span>Ongkir</span><span>{money(selected.shipping_cost)}</span></div>
                   <div className="flex justify-between text-slate-500"><span>Diskon</span><span>− {money(selected.discount_amount)}</span></div>
                   <div className="flex justify-between border-t border-white/[.08] pt-3 text-sm font-bold text-white"><span>Total</span><span className="text-base font-bold tabular-nums text-white">{money(selected.total_amount)}</span></div>
