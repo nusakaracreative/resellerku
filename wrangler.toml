@@ -12,5 +12,3 @@ RECEIPTS_BUCKET = "receipts"
 ALLOWED_ORIGINS = "http://localhost:3000"
 MAX_IMAGE_BYTES = "6291456"
 
-[secrets]
-required = ["SUPABASE_SERVICE_ROLE_KEY", "GEMINI_API_KEY"]
