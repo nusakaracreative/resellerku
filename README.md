@@ -40,3 +40,6 @@ The owner must confirm actual settlement before setting payment_status = verifie
 - Object paths must be under tenant_id/order_id.
 - Never expose service-role or Gemini API keys in browser code.
 - Stage 1 schema does not define orders.status = verified/manual_check; it uses payment_review and receipt_ocr_status.
+
+## Continuous validation
+The worker-ci GitHub Actions workflow runs TypeScript validation on relevant pushes and pull requests.
