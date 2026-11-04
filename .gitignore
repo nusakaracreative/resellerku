@@ -7,3 +7,7 @@ node_modules/
 .env.*
 !.env.example
 dist/
+
+.next/
+*.tsbuildinfo
+out/
