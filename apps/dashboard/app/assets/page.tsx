@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Check, Copy, Download, FileText, Image as ImageIcon, Plus, Upload, Video, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 type Asset = {
@@ -134,7 +135,7 @@ export default function AssetsPage() {
     <div className="space-y-7">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div><p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#FF8058]">Reseller enablement</p><h1 className="mt-2 text-3xl font-bold tracking-tight">Marketing Asset Hub</h1><p className="mt-2 text-sm text-slate-400">Kelola materi promosi, video kampanye, dan copywriting untuk jaringan reseller.</p></div>
-        <button onClick={() => { setError(""); setModalOpen(true); }} className="btn-primary">＋ Unggah Aset Baru</button>
+        <button onClick={() => { setError(""); setModalOpen(true); }} className="btn-primary"><Plus size={16} strokeWidth={1.5} /> Unggah Aset Baru</button>
       </header>
 
       {notice && <div role="status" className="rounded-xl border border-emerald-400/20 bg-emerald-400/[.08] px-4 py-3 text-sm text-emerald-200">{notice}</div>}
@@ -145,7 +146,7 @@ export default function AssetsPage() {
       </section>
 
       {loading ? <div className="surface rounded-2xl p-10 text-center text-sm text-slate-500">Memuat library aset…</div> : groups.length === 0 ? (
-        <div className="surface rounded-2xl border-dashed p-12 text-center"><div className="text-4xl text-slate-600">▧</div><h2 className="mt-4 font-bold">Library kampanye masih kosong</h2><p className="mx-auto mt-2 max-w-md text-xs leading-5 text-slate-500">Unggah foto, video, dokumen, atau copywriting. Beberapa materi dengan nama kampanye yang sama akan tampil sebagai satu bundle.</p><button onClick={() => setModalOpen(true)} className="btn-secondary mt-5">Mulai unggah aset</button></div>
+        <div className="surface rounded-2xl border-dashed p-12 text-center"><ImageIcon size={30} strokeWidth={1.5} className="mx-auto text-gray-400" /><h2 className="mt-4 font-bold">Library kampanye masih kosong</h2><p className="mx-auto mt-2 max-w-md text-xs leading-5 text-slate-500">Unggah foto, video, dokumen, atau copywriting. Beberapa materi dengan nama kampanye yang sama akan tampil sebagai satu bundle.</p><button onClick={() => setModalOpen(true)} className="btn-secondary mt-5">Mulai unggah aset</button></div>
       ) : groups.map(([groupName, groupAssets]) => (
         <section key={groupName} className="space-y-4">
           <div className="flex items-center justify-between border-b border-white/[.08] pb-3"><div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-slate-500">Campaign bundle</p><h2 className="mt-1 text-lg font-bold">{groupName}</h2></div><span className="pill pill-muted">{groupAssets.length} materi</span></div>
@@ -155,7 +156,7 @@ export default function AssetsPage() {
                 <div className="relative grid h-48 place-items-center overflow-hidden bg-[#0a2029]">
                   {asset.signedUrl && asset.asset_type==="image" ? <img src={asset.signedUrl} alt={asset.title} className="h-full w-full object-cover" /> :
                    asset.signedUrl && asset.asset_type==="video" ? <video src={asset.signedUrl} controls preload="metadata" className="h-full w-full object-contain" /> :
-                   <div className="text-center"><div className="text-4xl text-[#FF8058]">{asset.asset_type==="copywriting" ? "¶" : asset.asset_type==="document" ? "▤" : "▶"}</div><p className="mt-2 text-[10px] uppercase tracking-wider text-slate-500">{asset.asset_type}</p></div>}
+                   <div className="text-center">{asset.asset_type==="copywriting" ? <FileText size={30} strokeWidth={1.5} className="mx-auto text-[#FF5722]" /> : asset.asset_type==="document" ? <FileText size={30} strokeWidth={1.5} className="mx-auto text-gray-400" /> : <Video size={30} strokeWidth={1.5} className="mx-auto text-gray-400" />}<p className="mt-2 text-[10px] uppercase tracking-wider text-slate-500">{asset.asset_type}</p></div>}
                   <span className={`absolute right-3 top-3 pill ${statusPill(asset.status)}`}>{asset.status}</span>
                 </div>
                 <div className="p-4">
@@ -163,8 +164,8 @@ export default function AssetsPage() {
                   {asset.description && <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{asset.description}</p>}
                   <p className="mt-3 text-[10px] text-slate-600">{formatDate(asset.created_at)} · {asset.campaign_name || "Tanpa kampanye"}</p>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    {asset.copywriting && <button onClick={() => void copyText(asset)} className="btn-secondary flex-1 text-xs">{copiedId===asset.id ? "✓ Tersalin" : "Copy teks"}</button>}
-                    {asset.signedUrl && <a href={asset.signedUrl} download target="_blank" rel="noreferrer" className="btn-secondary flex-1 text-center text-xs">Download ↧</a>}
+                    {asset.copywriting && <button onClick={() => void copyText(asset)} className="btn-secondary flex-1 text-xs">{copiedId===asset.id ? <><Check size={13} strokeWidth={1.5} className="text-emerald-400" /> Tersalin</> : <><Copy size={13} strokeWidth={1.5} className="text-gray-400" /> Copy teks</>}</button>}
+                    {asset.signedUrl && <a href={asset.signedUrl} download target="_blank" rel="noreferrer" className="btn-secondary flex-1 text-center text-xs"><Download size={13} strokeWidth={1.5} className="text-gray-400" /> Download</a>}
                   </div>
                 </div>
               </article>
@@ -173,20 +174,28 @@ export default function AssetsPage() {
         </section>
       ))}
 
-      {modalOpen && <div className="fixed inset-0 z-[80] grid place-items-center overflow-y-auto bg-black/75 p-4 backdrop-blur-sm">
-        <div role="dialog" aria-modal="true" aria-labelledby="asset-modal-title" className="surface my-6 w-full max-w-2xl rounded-2xl p-6 sm:p-7">
-          <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#FF8058]">Asset upload</p><h2 id="asset-modal-title" className="mt-2 text-xl font-bold">Tambah materi kampanye</h2></div><button onClick={() => { if (!saving) { setModalOpen(false); resetForm(); } }} className="btn-secondary">✕</button></div>
-          <form onSubmit={saveAsset} className="mt-6 space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block text-xs font-semibold text-slate-300">Judul aset<input required maxLength={120} className="field mt-2" placeholder="Contoh: Promo November" value={title} onChange={e=>setTitle(e.target.value)} /></label>
-              <label className="block text-xs font-semibold text-slate-300">Nama kampanye / bundle<input maxLength={100} className="field mt-2" placeholder="Contoh: Payday November" value={campaign} onChange={e=>setCampaign(e.target.value)} /></label>
+      {modalOpen && <div className="fixed inset-0 z-[80] flex items-center justify-center overflow-hidden bg-black/75 p-4 backdrop-blur-xl">
+        <div role="dialog" aria-modal="true" aria-labelledby="asset-modal-title" className="surface my-0 flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/5 shadow-2xl shadow-black/40">
+          <div className="flex shrink-0 items-start justify-between gap-4 border-b border-white/[.06] bg-[#102832]/95 px-6 py-5 backdrop-blur-xl sm:px-7">
+            <div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#FF8058]">Asset upload</p><h2 id="asset-modal-title" className="mt-2 text-xl font-bold">Tambah materi kampanye</h2><p className="mt-1 text-[11px] text-slate-500">Siapkan materi untuk jaringan reseller.</p></div>
+            <button type="button" aria-label="Tutup modal" onClick={() => { if (!saving) { setModalOpen(false); resetForm(); } }} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-white/5 bg-white/[.035] text-gray-400 shadow-lg transition hover:border-[#FF5722]/30 hover:text-[#FF5722]" disabled={saving}><X size={18} strokeWidth={1.5} /></button>
+          </div>
+          <form onSubmit={saveAsset} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="scrollbar-thin min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5 sm:px-7">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block text-xs font-semibold text-slate-300">Judul aset<input required maxLength={120} className="field mt-2" placeholder="Contoh: Promo November" value={title} onChange={e=>setTitle(e.target.value)} /></label>
+                <label className="block text-xs font-semibold text-slate-300">Nama kampanye / bundle<input maxLength={100} className="field mt-2" placeholder="Contoh: Payday November" value={campaign} onChange={e=>setCampaign(e.target.value)} /></label>
+              </div>
+              <label className="block text-xs font-semibold text-slate-300">Deskripsi singkat<textarea rows={2} maxLength={500} className="field mt-2" placeholder="Keterangan untuk tim reseller" value={description} onChange={e=>setDescription(e.target.value)} /></label>
+              <label className="block text-xs font-semibold text-slate-300">File materi <span className="font-normal text-slate-500">(opsional jika hanya menyimpan copywriting)</span><input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,application/pdf" className="field mt-2 file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-xs" onChange={e=>setFile(e.target.files?.[0] ?? null)} />{file && <span className="mt-1 block text-[10px] text-slate-500">{file.name} · {(file.size/1024/1024).toFixed(2)} MB</span>}</label>
+              <label className="block text-xs font-semibold text-slate-300">Copywriting<textarea rows={5} maxLength={12000} className="field mt-2" placeholder="Caption, CTA, hashtag, atau instruksi publikasi…" value={copywriting} onChange={e=>setCopywriting(e.target.value)} /></label>
+              <label className="flex items-center gap-3 rounded-xl border border-white/[.08] bg-white/[.025] p-3 text-xs text-slate-300"><input type="checkbox" checked={publishNow} onChange={e=>setPublishNow(e.target.checked)} className="accent-[#FF5722]" />Publikasikan setelah upload berhasil (reseller dapat melihat materi)</label>
+              <p className="text-[10px] leading-5 text-slate-600">Maksimum 25 MB. Format: JPG, PNG, WebP, MP4, WebM, PDF. File disimpan di private Supabase Storage.</p>
             </div>
-            <label className="block text-xs font-semibold text-slate-300">Deskripsi singkat<textarea rows={2} maxLength={500} className="field mt-2" placeholder="Keterangan untuk tim reseller" value={description} onChange={e=>setDescription(e.target.value)} /></label>
-            <label className="block text-xs font-semibold text-slate-300">File materi <span className="font-normal text-slate-500">(opsional jika hanya menyimpan copywriting)</span><input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,application/pdf" className="field mt-2 file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-xs" onChange={e=>setFile(e.target.files?.[0] ?? null)} />{file && <span className="mt-1 block text-[10px] text-slate-500">{file.name} · {(file.size/1024/1024).toFixed(2)} MB</span>}</label>
-            <label className="block text-xs font-semibold text-slate-300">Copywriting<textarea rows={5} maxLength={12000} className="field mt-2" placeholder="Caption, CTA, hashtag, atau instruksi publikasi…" value={copywriting} onChange={e=>setCopywriting(e.target.value)} /></label>
-            <label className="flex items-center gap-3 rounded-xl border border-white/[.08] bg-white/[.025] p-3 text-xs text-slate-300"><input type="checkbox" checked={publishNow} onChange={e=>setPublishNow(e.target.checked)} className="accent-[#FF5722]" />Publikasikan setelah upload berhasil (reseller dapat melihat materi)</label>
-            <p className="text-[10px] leading-5 text-slate-600">Maksimum 25 MB. Format: JPG, PNG, WebP, MP4, WebM, PDF. File disimpan di private Supabase Storage.</p>
-            <div className="flex justify-end gap-2 border-t border-white/[.08] pt-4"><button type="button" onClick={() => setModalOpen(false)} className="btn-secondary" disabled={saving}>Batal</button><button type="submit" disabled={saving} className="btn-primary disabled:opacity-50">{saving ? "Menyimpan…" : "Simpan aset"}</button></div>
+            <div className="sticky bottom-0 z-10 flex shrink-0 justify-end gap-2 border-t border-white/[.08] bg-[#102832]/95 px-6 py-4 shadow-[0_-10px_30px_rgba(0,0,0,.22)] backdrop-blur-xl sm:px-7">
+              <button type="button" onClick={() => { if (!saving) { setModalOpen(false); resetForm(); } }} className="btn-secondary" disabled={saving}>Batal</button>
+              <button type="submit" disabled={saving} className="btn-primary min-w-36 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Menyimpan…" : <><Upload size={15} strokeWidth={1.5} /> Simpan aset</>}</button>
+            </div>
           </form>
         </div>
       </div>}
