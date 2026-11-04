@@ -452,17 +452,8 @@ create table if not exists public.reseller_referral_codes (
   check (ends_at is null or starts_at is null or ends_at > starts_at)
 );
 
-do $
-begin
-  if not exists (
-    select 1 from pg_constraint
-    where conrelid = 'public.tenant_memberships'::regclass
-      and conname = 'tenant_memberships_tenant_id_id_key'
-  ) then
-    alter table public.tenant_memberships
-      add constraint tenant_memberships_tenant_id_id_key unique (tenant_id, id);
-  end if;
-end $;
+alter table public.tenant_memberships
+  add constraint tenant_memberships_tenant_id_id_key unique (tenant_id, id);
 
 alter table public.orders alter column reseller_id drop not null;
 alter table public.orders
