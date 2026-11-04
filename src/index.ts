@@ -233,6 +233,52 @@ async function writeAudit(db: SupabaseClient, order: Order, userId: string, acti
   });
   if (error) console.error("audit log insert failed", error.message);
 }
+async function dependencyHealth(request: Request, env: Env): Promise<Response> {
+  const model = env.GEMINI_MODEL ?? "gemini-3.8-flash";
+  const version = env.GEMINI_API_VERSION ?? "v1beta";
+  const checks = await Promise.allSettled([
+    (async () => {
+      const supabaseUrl = env.SUPABASE_URL.replace(/\/+$/, "");
+      const response = await fetch(supabaseUrl + "/rest/v1/tenants?select=id&limit=1", {
+        method: "GET",
+        headers: {
+          apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: "Bearer " + env.SUPABASE_SERVICE_ROLE_KEY,
+        },
+        signal: AbortSignal.timeout(10_000),
+      });
+      return response.ok;
+    })(),
+    (async () => {
+      const response = await fetch(
+        "https://generativelanguage.googleapis.com/" + version + "/models/" + encodeURIComponent(model),
+        {
+          method: "GET",
+          headers: { "x-goog-api-key": env.GEMINI_API_KEY },
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+      return response.ok;
+    })(),
+  ]);
+
+  const supabaseOk = checks[0].status === "fulfilled" && checks[0].value === true;
+  const geminiOk = checks[1].status === "fulfilled" && checks[1].value === true;
+  const configured = Boolean(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY && env.GEMINI_API_KEY);
+  const ok = configured && supabaseOk && geminiOk;
+
+  return json(request, env, {
+    ok,
+    service: "resellerku-api",
+    dependencies: {
+      supabase: configured ? (supabaseOk ? "connected" : "unavailable") : "not_configured",
+      gemini: configured ? (geminiOk ? "available" : "unavailable") : "not_configured",
+    },
+    model,
+    checked_at: new Date().toISOString(),
+  }, ok ? 200 : 503);
+}
+
 async function verifyReceipt(request: Request, env: Env): Promise<Response> {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !env.GEMINI_API_KEY) {
     return json(request, env, { error: "Konfigurasi Worker belum lengkap." }, 500);
@@ -393,6 +439,16 @@ export default {
     }
     if (url.pathname === "/health" && request.method === "GET") {
       return json(request, env, { ok: true, service: "resellerku-api" });
+    }
+    if (url.pathname === "/health/dependencies" && request.method === "GET") {
+      if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !env.GEMINI_API_KEY) {
+        return json(request, env, { ok: false, error: "Konfigurasi dependency belum lengkap." }, 503);
+      }
+      try { return await dependencyHealth(request, env); }
+      catch (error) {
+        console.error("dependency health check failed", error);
+        return json(request, env, { ok: false, error: "Pemeriksaan dependency gagal." }, 503);
+      }
     }
     if (url.pathname === "/api/verify-receipt" && request.method === "POST") {
       try { return await verifyReceipt(request, env); }
