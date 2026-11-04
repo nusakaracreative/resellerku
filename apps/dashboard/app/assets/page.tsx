@@ -175,8 +175,8 @@ export default function AssetsPage() {
       ))}
 
       {modalOpen && <div className="fixed inset-0 z-[80] flex items-center justify-center overflow-hidden bg-black/75 p-4 backdrop-blur-xl">
-        <div role="dialog" aria-modal="true" aria-labelledby="asset-modal-title" className="surface my-0 flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/5 shadow-2xl shadow-black/40">
-          <div className="flex shrink-0 items-start justify-between gap-4 border-b border-white/[.06] bg-[#102832]/95 px-6 py-5 backdrop-blur-xl sm:px-7">
+        <div role="dialog" aria-modal="true" aria-labelledby="asset-modal-title" className="surface my-0 flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/5 shadow-xl shadow-black/40">
+          <div className="flex shrink-0 items-start justify-between gap-4 border-b border-white/[.06] bg-[#15303b] px-6 py-5 sm:px-7">
             <div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#FF8058]">Asset upload</p><h2 id="asset-modal-title" className="mt-2 text-xl font-bold">Tambah materi kampanye</h2><p className="mt-1 text-[11px] text-slate-500">Siapkan materi untuk jaringan reseller.</p></div>
             <button type="button" aria-label="Tutup modal" onClick={() => { if (!saving) { setModalOpen(false); resetForm(); } }} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-white/5 bg-white/[.035] text-gray-400 shadow-lg transition hover:border-[#FF5722]/30 hover:text-[#FF5722]" disabled={saving}><X size={18} strokeWidth={1.5} /></button>
           </div>
@@ -192,7 +192,7 @@ export default function AssetsPage() {
               <label className="flex items-center gap-3 rounded-xl border border-white/[.08] bg-white/[.025] p-3 text-xs text-slate-300"><input type="checkbox" checked={publishNow} onChange={e=>setPublishNow(e.target.checked)} className="accent-[#FF5722]" />Publikasikan setelah upload berhasil (reseller dapat melihat materi)</label>
               <p className="text-[10px] leading-5 text-slate-600">Maksimum 25 MB. Format: JPG, PNG, WebP, MP4, WebM, PDF. File disimpan di private Supabase Storage.</p>
             </div>
-            <div className="sticky bottom-0 z-10 flex shrink-0 justify-end gap-2 border-t border-white/[.08] bg-[#102832]/95 px-6 py-4 shadow-[0_-10px_30px_rgba(0,0,0,.22)] backdrop-blur-xl sm:px-7">
+            <div className="sticky bottom-0 z-10 flex shrink-0 justify-end gap-2 border-t border-gray-800 bg-[#15303b] px-6 py-4 shadow-[0_-10px_30px_rgba(0,0,0,.28)] sm:px-7">
               <button type="button" onClick={() => { if (!saving) { setModalOpen(false); resetForm(); } }} className="btn-secondary" disabled={saving}>Batal</button>
               <button type="submit" disabled={saving} className="btn-primary min-w-36 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Menyimpan…" : <><Upload size={15} strokeWidth={1.5} /> Simpan aset</>}</button>
             </div>
