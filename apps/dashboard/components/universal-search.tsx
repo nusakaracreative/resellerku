@@ -20,6 +20,7 @@ type OrderHit = {
   total_amount: number | string;
   status: string;
   payment_status: string;
+  isPreview?: boolean;
 };
 
 type ResellerHit = {
@@ -126,9 +127,27 @@ export function UniversalSearch({ tenantId }: Props) {
           resellerMatches = (data ?? []).filter(row => Boolean(row.full_name)) as ResellerHit[];
         }
 
+        const databaseOrders = [...exactOrder, ...(orderResult.data ?? []).filter(row => !exactOrder.some(exact => exact.id === row.id))] as OrderHit[];
+        const previewEnabled = process.env.NEXT_PUBLIC_DASHBOARD_PREVIEW === "true";
+        const previewOrderText = "RSK-DEMO-2026-001 sobri demo pelanggan simulasi";
+        const previewOrderMatches = previewEnabled && previewOrderText.includes(term.toLowerCase());
+        const previewOrders: OrderHit[] = previewOrderMatches ? [{
+          id: "preview-order-001",
+          order_number: "RSK-DEMO-2026-001",
+          reseller_id: "preview-reseller",
+          recipient_name: "Pelanggan Simulasi",
+          total_amount: 52000,
+          status: "payment_review",
+          payment_status: "submitted",
+          isPreview: true,
+        }] : [];
+        const previewResellers: ResellerHit[] = previewEnabled && "sobri demo".includes(term.toLowerCase())
+          ? [{ id: "preview-reseller", full_name: "Sobri Demo" }]
+          : [];
+
         if (alive) {
-          setOrders([...exactOrder, ...(orderResult.data ?? []).filter(row => !exactOrder.some(exact => exact.id === row.id))] as OrderHit[]);
-          setResellers(resellerMatches);
+          setOrders([...databaseOrders, ...previewOrders.filter(row => !databaseOrders.some(item => item.order_number === row.order_number))]);
+          setResellers([...resellerMatches, ...previewResellers.filter(row => !resellerMatches.some(item => item.id === row.id))]);
         }
       } catch (caught) {
         if (alive) {
@@ -223,7 +242,7 @@ export function UniversalSearch({ tenantId }: Props) {
                         <span className="block truncate text-xs font-semibold text-slate-100">{order.order_number}</span>
                         <span className="mt-1 block truncate text-[10px] text-slate-500">{order.recipient_name} · {money(order.total_amount)}</span>
                       </span>
-                      <span className="hidden shrink-0 text-[9px] capitalize text-slate-500 sm:block">{statusLabel(order.payment_status)}</span>
+                      <span className="hidden shrink-0 text-[9px] text-slate-500 sm:block">{order.isPreview ? "SIMULASI" : statusLabel(order.payment_status)}</span>
                       <ArrowUpRight size={14} strokeWidth={1.5} className="shrink-0 text-gray-500 transition group-hover:text-[#FF5722]" />
                     </button>
                   ))}
