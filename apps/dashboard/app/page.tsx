@@ -1,7 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ComponentType } from "react";
+import {
+  Activity,
+  ArrowUpRight,
+  Banknote,
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
+  ClipboardList,
+  Image,
+  Package,
+  RefreshCw,
+  ShieldCheck,
+  TrendingUp,
+  UserRound,
+  Wallet,
+  type LucideProps,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 type Metrics = {
@@ -11,6 +28,14 @@ type Metrics = {
   activeProducts: number;
 };
 
+type ActivityRow = {
+  id: number;
+  action: string;
+  entity_type: string;
+  details: Record<string, unknown>;
+  created_at: string;
+};
+
 const emptyMetrics: Metrics = {
   pendingOrders: 0,
   verifiedOrders: 0,
@@ -18,19 +43,61 @@ const emptyMetrics: Metrics = {
   activeProducts: 0,
 };
 
-const metricCards = [
-  { key: "pendingOrders", label: "Pesanan perlu ditinjau", note: "Pesanan pembayaran yang menunggu pemeriksaan", icon: "◷" },
-  { key: "verifiedOrders", label: "Pembayaran terverifikasi", note: "Jumlah pesanan dengan pembayaran terkonfirmasi", icon: "↗" },
-  { key: "activeResellers", label: "Reseller aktif", note: "Membership reseller aktif pada tenant ini", icon: "◎" },
-  { key: "activeProducts", label: "Produk aktif", note: "Tidak termasuk produk data simulasi", icon: "▦" },
-] as const;
+const metricCards: {
+  key: keyof Metrics;
+  label: string;
+  note: string;
+  Icon: ComponentType<LucideProps>;
+}[] = [
+  { key: "pendingOrders", label: "Pesanan perlu ditinjau", note: "Pembayaran menunggu pemeriksaan", Icon: ClipboardList },
+  { key: "verifiedOrders", label: "Pembayaran terverifikasi", note: "Pesanan dengan settlement terkonfirmasi", Icon: ShieldCheck },
+  { key: "activeResellers", label: "Reseller aktif", note: "Membership aktif pada tenant ini", Icon: UserRound },
+  { key: "activeProducts", label: "Produk aktif", note: "Tidak termasuk data simulasi", Icon: Package },
+];
+
+const revenuePreview = [
+  { label: "SEN", value: 34 },
+  { label: "SEL", value: 52 },
+  { label: "RAB", value: 44 },
+  { label: "KAM", value: 72 },
+  { label: "JUM", value: 59 },
+  { label: "SAB", value: 88 },
+  { label: "MIN", value: 67 },
+];
+
+function describeActivity(action: string, entityType: string) {
+  const key = action.toLowerCase();
+  if (key.includes("payment") || key.includes("receipt")) {
+    return { title: "Aktivitas pembayaran", description: "Pemeriksaan atau pembaruan status pembayaran", Icon: Banknote };
+  }
+  if (key.includes("order")) {
+    return { title: "Aktivitas pesanan", description: "Pembaruan pada transaksi pesanan", Icon: ClipboardList };
+  }
+  if (key.includes("asset")) {
+    return { title: "Marketing Asset Hub", description: "Materi kampanye diperbarui", Icon: Image };
+  }
+  if (key.includes("product") || entityType === "product") {
+    return { title: "Katalog produk", description: "Data produk diperbarui", Icon: Package };
+  }
+  if (key.includes("wallet") || key.includes("payout")) {
+    return { title: "Aktivitas saldo", description: "Perubahan pada ledger atau payout", Icon: Wallet };
+  }
+  return { title: "Aktivitas sistem", description: "Perubahan tercatat pada workspace", Icon: Activity };
+}
+
+function formatActivityTime(value: string) {
+  const date = new Date(value);
+  return new Intl.DateTimeFormat("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(date);
+}
 
 export default function HomePage() {
   const [metrics, setMetrics] = useState<Metrics>(emptyMetrics);
+  const [activities, setActivities] = useState<ActivityRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [activityUnavailable, setActivityUnavailable] = useState(false);
 
-  const loadMetrics = useCallback(async () => {
+  const loadDashboard = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -51,7 +118,7 @@ export default function HomePage() {
       if (!membership) throw new Error("Tenant Business Owner aktif tidak ditemukan.");
 
       const tenantId = membership.tenant_id as string;
-      const [pendingResult, verifiedResult, resellerResult, productResult] = await Promise.all([
+      const [pendingResult, verifiedResult, resellerResult, productResult, activityResult] = await Promise.all([
         supabase.from("orders").select("id", { count: "exact", head: true })
           .eq("tenant_id", tenantId).eq("status", "payment_review").eq("payment_status", "submitted"),
         supabase.from("orders").select("id", { count: "exact", head: true })
@@ -61,6 +128,8 @@ export default function HomePage() {
           .eq("tenant_id", tenantId).eq("role", "reseller").eq("is_active", true),
         supabase.from("products").select("id", { count: "exact", head: true })
           .eq("tenant_id", tenantId).eq("status", "active").eq("is_demo_data", false),
+        supabase.from("audit_logs").select("id,action,entity_type,details,created_at")
+          .eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(6),
       ]);
 
       const firstError = pendingResult.error ?? verifiedResult.error ?? resellerResult.error ?? productResult.error;
@@ -72,71 +141,156 @@ export default function HomePage() {
         activeResellers: resellerResult.count ?? 0,
         activeProducts: productResult.count ?? 0,
       });
+
+      if (activityResult.error) {
+        setActivities([]);
+        setActivityUnavailable(true);
+      } else {
+        setActivities((activityResult.data ?? []) as ActivityRow[]);
+        setActivityUnavailable(false);
+      }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Metrik dashboard tidak dapat dimuat.");
+      setError(caught instanceof Error ? caught.message : "Data dashboard tidak dapat dimuat.");
       setMetrics(emptyMetrics);
+      setActivities([]);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { void loadMetrics(); }, [loadMetrics]);
+  useEffect(() => { void loadDashboard(); }, [loadDashboard]);
 
   return (
     <div className="space-y-7">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#FF8058]">Business overview</p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight">Command Center</h1>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-white">Command Center</h1>
           <p className="mt-2 text-sm text-slate-400">Pantau aktivitas operasional tenant Resellerku.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="pill pill-green">● Data Supabase</span>
-          <button type="button" onClick={() => void loadMetrics()} disabled={loading} className="btn-secondary disabled:opacity-50">{loading ? "Memuat…" : "↻ Refresh"}</button>
+          <span className="pill pill-green"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,.5)]" /> Data Supabase</span>
+          <button type="button" onClick={() => void loadDashboard()} disabled={loading} className="btn-secondary disabled:opacity-50">
+            <RefreshCw size={15} strokeWidth={1.5} className={loading ? "animate-spin text-[#FF5722]" : "text-gray-400"} />
+            {loading ? "Memuat…" : "Refresh"}
+          </button>
         </div>
       </header>
 
       {error && <div role="alert" className="rounded-xl border border-rose-400/20 bg-rose-400/[.08] px-4 py-3 text-sm text-rose-200">{error}</div>}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {metricCards.map((metric) => (
-          <article key={metric.key} className="surface rounded-2xl p-5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-400">{metric.label}</span>
-              <span className="grid h-9 w-9 place-items-center rounded-xl bg-white/[.05] text-lg text-[#FF8058]">{metric.icon}</span>
-            </div>
-            <p className="mt-5 text-2xl font-bold tabular-nums">{loading ? "—" : metrics[metric.key].toLocaleString("id-ID")}</p>
-            <p className="mt-1 text-[11px] text-slate-500">{metric.note}</p>
-          </article>
-        ))}
+        {metricCards.map((metric) => {
+          const Icon = metric.Icon;
+          return (
+            <article key={metric.key} className="surface group rounded-2xl border border-white/5 p-5 shadow-lg shadow-black/10 transition duration-200 hover:-translate-y-0.5 hover:border-white/10">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium text-slate-400">{metric.label}</span>
+                <span className="grid h-10 w-10 place-items-center rounded-xl border border-white/5 bg-white/[.035]">
+                  <Icon size={19} strokeWidth={1.5} className="text-[#FF5722] drop-shadow-[0_0_7px_rgba(255,87,34,.2)]" />
+                </span>
+              </div>
+              <p className="mt-5 text-2xl font-bold tabular-nums text-white">{loading ? "—" : metrics[metric.key].toLocaleString("id-ID")}</p>
+              <p className="mt-1 text-[11px] text-slate-500">{metric.note}</p>
+            </article>
+          );
+        })}
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[1.25fr_.75fr]">
-        <div className="surface rounded-2xl p-6">
-          <div className="flex items-center justify-between">
-            <div><h2 className="font-bold">Alur operasional</h2><p className="mt-1 text-xs text-slate-500">Titik kendali utama Business Owner</p></div>
-            <span className="pill pill-muted">Overview</span>
+      <section className="grid gap-5 xl:grid-cols-[1fr_1fr]">
+        <article className="surface rounded-2xl border border-white/5 p-5 shadow-lg shadow-black/10 sm:p-6">
+          <div className="flex items-start justify-between gap-3 border-b border-white/[.06] pb-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <Activity size={17} strokeWidth={1.5} className="text-[#FF5722]" />
+                <h2 className="text-base font-semibold text-white">Log Aktivitas Terkini</h2>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">Jejak perubahan pada workspace ini</p>
+            </div>
+            <span className="pill pill-muted">Audit trail</span>
           </div>
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            {[["01","Terima pesanan","Periksa antrean dan identitas reseller"],["02","Validasi pembayaran","Tinjau struk dan konfirmasi settlement bank"],["03","Proses pengiriman","Teruskan pesanan setelah pembayaran valid"]].map(item => (
-              <div key={item[0]} className="surface-muted rounded-xl p-4">
-                <p className="text-[10px] font-bold tracking-widest text-[#FF8058]">{item[0]}</p>
-                <h3 className="mt-4 text-sm font-bold">{item[1]}</h3>
-                <p className="mt-2 text-xs leading-5 text-slate-500">{item[2]}</p>
+
+          <div className="divide-y divide-white/[.055]">
+            {loading ? (
+              <div className="py-10 text-center text-xs text-slate-500">Memuat aktivitas…</div>
+            ) : activities.length > 0 ? activities.map((activity) => {
+              const meta = describeActivity(activity.action, activity.entity_type);
+              const Icon = meta.Icon;
+              return (
+                <div key={activity.id} className="flex items-center gap-3 py-4">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-white/5 bg-[#0b2028]/75">
+                    <Icon size={17} strokeWidth={1.5} className="text-gray-400" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-slate-100">{meta.title}</p>
+                    <p className="mt-0.5 truncate text-[11px] text-slate-500">{meta.description} · {activity.entity_type.replaceAll("_", " ")}</p>
+                  </div>
+                  <time className="shrink-0 text-[10px] tabular-nums text-slate-500">{formatActivityTime(activity.created_at)}</time>
+                </div>
+              );
+            }) : (
+              <div className="flex min-h-[250px] flex-col items-center justify-center px-5 text-center">
+                <span className="grid h-12 w-12 place-items-center rounded-2xl border border-white/5 bg-white/[.025]">
+                  <Clock3 size={21} strokeWidth={1.5} className="text-gray-400" />
+                </span>
+                <p className="mt-4 text-sm font-semibold text-slate-300">Belum ada aktivitas</p>
+                <p className="mt-1 max-w-xs text-xs leading-5 text-slate-500">{activityUnavailable ? "Audit trail belum dapat dibaca oleh sesi ini." : "Aktivitas baru akan muncul ketika ada perubahan pesanan, pembayaran, produk, atau aset."}</p>
+              </div>
+            )}
+          </div>
+          <div className="mt-2 flex items-center justify-between border-t border-white/[.06] pt-4">
+            <span className="text-[10px] text-slate-600">Maksimal 6 aktivitas terbaru</span>
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500"><ShieldCheck size={13} strokeWidth={1.5} /> Tenant scoped</span>
+          </div>
+        </article>
+
+        <article className="surface rounded-2xl border border-white/5 p-5 shadow-lg shadow-black/10 sm:p-6">
+          <div className="flex items-start justify-between gap-3 border-b border-white/[.06] pb-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <TrendingUp size={17} strokeWidth={1.5} className="text-[#FF5722]" />
+                <h2 className="text-base font-semibold text-white">Tren Omzet</h2>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">Visual tren mingguan</p>
+            </div>
+            <span className="pill pill-amber"><CalendarDays size={12} strokeWidth={1.5} /> Simulasi</span>
+          </div>
+
+          <div className="mt-6 flex items-end justify-between gap-2">
+            {revenuePreview.map((item, index) => (
+              <div key={item.label} className="flex min-w-0 flex-1 flex-col items-center gap-3">
+                <span className="text-[9px] tabular-nums text-slate-600">{item.value}%</span>
+                <div className="flex h-44 w-full items-end justify-center rounded-lg border border-white/[.035] bg-[#0b2028]/55 p-1.5">
+                  <div
+                    className={`w-full max-w-8 rounded-t-md transition-all duration-500 ${index === 5 ? "bg-gradient-to-t from-[#E64A19] to-[#FF855E] shadow-[0_0_20px_rgba(255,87,34,.2)]" : "bg-gradient-to-t from-[#17495A] to-[#398096]/80"}`}
+                    style={{ height: `${item.value}%` }}
+                  />
+                </div>
+                <span className={`text-[9px] font-semibold tracking-wide ${index === 5 ? "text-[#FF8058]" : "text-slate-500"}`}>{item.label}</span>
               </div>
             ))}
           </div>
-        </div>
-        <div className="surface rounded-2xl p-6">
-          <p className="text-[10px] font-bold uppercase tracking-[.2em] text-slate-500">Quick access</p>
-          <h2 className="mt-2 text-lg font-bold">Pusat pengelolaan</h2>
-          <div className="mt-5 space-y-2">
-            <Link href="/orders" className="btn-secondary w-full justify-between">Antrean & verifikasi pesanan <span>→</span></Link>
-            <Link href="/catalog" className="btn-secondary w-full justify-between">Kelola katalog produk <span>→</span></Link>
-            <Link href="/assets" className="btn-secondary w-full justify-between">Marketing Asset Hub <span>→</span></Link>
+
+          <div className="mt-5 flex items-start gap-2 rounded-xl border border-amber-300/10 bg-amber-300/[.045] p-3">
+            <Banknote size={15} strokeWidth={1.5} className="mt-0.5 shrink-0 text-amber-300" />
+            <p className="text-[10px] leading-5 text-amber-100/75">Grafik ini hanya simulasi visual untuk pratinjau desain. Belum merepresentasikan omzet aktual dan tidak digunakan sebagai laporan keuangan.</p>
           </div>
-          <p className="mt-5 rounded-xl border border-amber-300/15 bg-amber-300/[.06] p-3 text-[11px] leading-5 text-amber-100/80">Angka metrik berasal dari database tenant aktif. Produk bertanda data simulasi tidak dihitung sebagai produk bisnis riil. Pesanan preview di halaman Pesanan tidak mengubah metrik database.</p>
+        </article>
+      </section>
+
+      <section className="surface rounded-2xl border border-white/5 p-5 shadow-lg shadow-black/10 sm:p-6">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[.2em] text-slate-500">Quick access</p>
+            <h2 className="mt-1 text-lg font-semibold text-white">Pusat pengelolaan</h2>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <Link href="/orders" className="btn-secondary justify-between text-xs">Antrean pesanan <ArrowUpRight size={14} strokeWidth={1.5} className="text-gray-400" /></Link>
+            <Link href="/catalog" className="btn-secondary justify-between text-xs">Katalog produk <ArrowUpRight size={14} strokeWidth={1.5} className="text-gray-400" /></Link>
+            <Link href="/assets" className="btn-secondary justify-between text-xs">Marketing Asset Hub <ArrowUpRight size={14} strokeWidth={1.5} className="text-gray-400" /></Link>
+          </div>
         </div>
+        <p className="mt-4 rounded-xl border border-amber-300/10 bg-amber-300/[.045] p-3 text-[10px] leading-5 text-amber-100/75">Angka metrik berasal dari database tenant aktif. Produk bertanda data simulasi tidak dihitung sebagai produk bisnis riil. Grafik tren omzet di atas belum terhubung ke laporan aktual.</p>
       </section>
     </div>
   );
