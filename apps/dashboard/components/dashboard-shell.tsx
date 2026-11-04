@@ -16,6 +16,7 @@ import {
   Eye,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { UniversalSearch } from "@/components/universal-search";
 
 const navigation = [
   { href: "/", label: "Beranda", Icon: Home },
@@ -31,6 +32,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   const [allowed, setAllowed] = useState(pathname === "/login");
   const [email, setEmail] = useState("");
   const [tenantName, setTenantName] = useState("Workspace");
+  const [tenantId, setTenantId] = useState("");
   const [pendingCount, setPendingCount] = useState<number | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -79,6 +81,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           const previewOnly = process.env.NEXT_PUBLIC_DASHBOARD_PREVIEW === "true" && (totalOrders ?? 0) === 0;
           setEmail(user.email ?? "");
           setTenantName(tenant?.name ?? "Workspace");
+          setTenantId(tenantId);
           setPendingCount((pending ?? 0) > 0 ? (pending ?? 0) : previewOnly ? 1 : 0);
           setAllowed(true);
         }
@@ -98,6 +101,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     await createClient().auth.signOut();
+    setTenantId("");
     router.replace("/login");
     router.refresh();
   };
@@ -192,6 +196,15 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 
       <main className="min-h-screen lg:pl-[250px]">
         <div className="mx-auto max-w-[1680px] px-4 pb-10 pt-16 sm:px-6 lg:px-8 lg:pt-8">
+          <div className="mb-6 flex flex-col gap-3 border-b border-white/[.05] pb-5 sm:flex-row sm:items-center sm:justify-between">
+            <UniversalSearch tenantId={tenantId} />
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/15 bg-emerald-400/[.06] px-3 py-2 text-[10px] font-semibold text-emerald-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,.55)]" />
+                Workspace aktif
+              </span>
+            </div>
+          </div>
           {children}
         </div>
       </main>
