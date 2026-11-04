@@ -452,6 +452,18 @@ create table if not exists public.reseller_referral_codes (
   check (ends_at is null or starts_at is null or ends_at > starts_at)
 );
 
+do $
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.tenant_memberships'::regclass
+      and conname = 'tenant_memberships_tenant_id_id_key'
+  ) then
+    alter table public.tenant_memberships
+      add constraint tenant_memberships_tenant_id_id_key unique (tenant_id, id);
+  end if;
+end $;
+
 alter table public.orders alter column reseller_id drop not null;
 alter table public.orders
   add column if not exists customer_id uuid references public.users(id) on delete restrict,
@@ -1482,6 +1494,9 @@ declare
   v_quantity integer;
   v_product record;
   v_variant record;
+  v_variant_weight integer;
+  v_variant_sku text;
+  v_variant_options jsonb;
   v_item record;
   v_snapshot jsonb := '[]'::jsonb;
   v_coupon text := nullif(upper(trim(coalesce(p_coupon_code,''))), '');
@@ -1601,8 +1616,13 @@ begin
       if v_variant.stock_quantity - v_variant.reserved_quantity < v_quantity then
         raise exception 'insufficient_variant_stock:%', v_variant.sku using errcode = 'P0001';
       end if;
+      v_variant_weight := v_variant.weight_grams;
+      v_variant_sku := v_variant.sku;
+      v_variant_options := v_variant.option_values;
     else
-      v_variant := null;
+      v_variant_weight := null;
+      v_variant_sku := null;
+      v_variant_options := '{}'::jsonb;
     end if;
 
     if v_reseller_id is not null then
@@ -1623,14 +1643,14 @@ begin
 
     v_line_total := v_line_price * v_quantity;
     v_subtotal := v_subtotal + v_line_total;
-    v_total_weight := v_total_weight + coalesce(v_variant.weight_grams, v_product.weight_grams, 0) * v_quantity;
+    v_total_weight := v_total_weight + coalesce(v_variant_weight, v_product.weight_grams, 0) * v_quantity;
 
     v_snapshot := v_snapshot || jsonb_build_array(jsonb_build_object(
       'product_id', v_product.id,
       'variant_id', v_item.variant_id,
       'product_name', v_product.name,
-      'sku', coalesce(v_variant.sku, v_product.sku),
-      'variant_options', coalesce(v_variant.option_values, '{}'::jsonb),
+      'sku', coalesce(v_variant_sku, v_product.sku),
+      'variant_options', coalesce(v_variant_options, '{}'::jsonb),
       'quantity', v_quantity,
       'unit_price', v_line_price,
       'commission_amount', v_line_commission,
