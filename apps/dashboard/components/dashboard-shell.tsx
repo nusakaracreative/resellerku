@@ -55,16 +55,19 @@ export function DashboardShell({ children }: { children: ReactNode }) {
         }
 
         const tenantId = memberships[0].tenant_id as string;
-        const [{ data: tenant }, { count }] = await Promise.all([
+        const [{ data: tenant }, { count: pending }, { count: totalOrders }] = await Promise.all([
           supabase.from("tenants").select("name").eq("id", tenantId).maybeSingle(),
           supabase.from("orders").select("id", { count: "exact", head: true })
             .eq("tenant_id", tenantId).in("status", ["awaiting_payment", "payment_review"]),
+          supabase.from("orders").select("id", { count: "exact", head: true })
+            .eq("tenant_id", tenantId),
         ]);
 
         if (alive) {
+          const previewOnly = process.env.NEXT_PUBLIC_DASHBOARD_PREVIEW === "true" && (totalOrders ?? 0) === 0;
           setEmail(user.email ?? "");
           setTenantName(tenant?.name ?? "Workspace");
-          setPendingCount(count ?? 0);
+          setPendingCount((pending ?? 0) > 0 ? (pending ?? 0) : previewOnly ? 1 : 0);
           setAllowed(true);
         }
       } catch {
