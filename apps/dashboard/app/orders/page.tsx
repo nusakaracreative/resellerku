@@ -214,8 +214,8 @@ export default function OrdersPage() {
       order.status,
       order.receipt_ocr_status,
     ]);
-    const csv = [header, ...rows].map(row => row.map(csvCell).join(",")).join("\\r\\n");
-    const blob = new Blob(["\\uFEFF", csv], { type: "text/csv;charset=utf-8" });
+    const csv = [header, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n");
+    const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
