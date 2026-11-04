@@ -101,7 +101,7 @@ function describeActivity(action: string, entityType: string, details: Record<st
       Icon: ClipboardCheck,
     };
   }
-  if (key.includes("membership") || key.includes("reseller") || key.includes("member_added")) {
+  if (key.includes("membership") || key.includes("reseller") || key.includes("member_added") || entityType.toLowerCase().includes("membership")) {
     return { title: "Reseller bergabung", description: "Membership reseller pada tenant diperbarui", Icon: UserPlus };
   }
   if (key.includes("asset")) {
