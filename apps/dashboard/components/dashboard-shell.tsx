@@ -29,6 +29,8 @@ export function DashboardShell({ children }: { children: ReactNode }) {
       return;
     }
 
+    setBusy(true);
+    setAllowed(false);
     let alive = true;
     const checkAccess = async () => {
       try {
