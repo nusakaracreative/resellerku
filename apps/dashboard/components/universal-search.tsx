@@ -102,6 +102,18 @@ export function UniversalSearch({ tenantId }: Props) {
         if (orderResult.error) throw orderResult.error;
         if (membershipResult.error) throw membershipResult.error;
 
+        const exactOrderId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(term);
+        let exactOrder: OrderHit[] = [];
+        if (exactOrderId) {
+          const { data, error } = await supabase.from("orders")
+            .select("id,order_number,reseller_id,recipient_name,total_amount,status,payment_status")
+            .eq("tenant_id", tenantId)
+            .eq("id", term)
+            .limit(1);
+          if (error) throw error;
+          exactOrder = (data ?? []) as OrderHit[];
+        }
+
         const resellerIds = [...new Set((membershipResult.data ?? []).map(row => row.user_id as string))];
         let resellerMatches: ResellerHit[] = [];
         if (resellerIds.length) {
@@ -115,7 +127,7 @@ export function UniversalSearch({ tenantId }: Props) {
         }
 
         if (alive) {
-          setOrders((orderResult.data ?? []) as OrderHit[]);
+          setOrders([...exactOrder, ...(orderResult.data ?? []).filter(row => !exactOrder.some(exact => exact.id === row.id))] as OrderHit[]);
           setResellers(resellerMatches);
         }
       } catch (caught) {
