@@ -9,6 +9,6 @@ SUPABASE_URL = "https://akbtmzkqjwsayafywrkg.supabase.co"
 GEMINI_MODEL = "gemini-3.6-flash"
 GEMINI_API_VERSION = "v1beta"
 RECEIPTS_BUCKET = "receipts"
-ALLOWED_ORIGINS = "http://localhost:3000"
+ALLOWED_ORIGINS = "http://localhost:3000,https://resellerku-dashboard.nusakaracreative.workers.dev"
 MAX_IMAGE_BYTES = "6291456"
 
