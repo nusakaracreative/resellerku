@@ -348,8 +348,8 @@ grant select, insert, update on public.tenants to authenticated;
 grant select, insert, update, delete on public.tenant_memberships to authenticated;
 grant select, insert, update, delete on public.products to authenticated;
 grant select, insert, update, delete on public.product_tier_prices to authenticated;
-grant select, insert, update on public.orders to authenticated;
-grant select, insert on public.order_items to authenticated;
+grant select, update on public.orders to authenticated; -- checkout writes are backend-only
+grant select on public.order_items to authenticated; -- order item writes are backend-only
 grant select, insert, update, delete on public.assets to authenticated;
 grant select on public.wallets, public.wallet_transactions to authenticated;
 grant select, insert on public.payout_requests to authenticated;
@@ -437,19 +437,7 @@ using (
   private.is_tenant_owner(tenant_id)
   or (reseller_id = (select auth.uid()) and private.is_tenant_member(tenant_id))
 );
-create policy orders_insert_reseller on public.orders
-for insert to authenticated
-with check (
-  reseller_id = (select auth.uid())
-  and private.is_tenant_member(tenant_id)
-  and exists (
-    select 1 from public.tenant_memberships tm
-    where tm.tenant_id = tenant_id
-      and tm.user_id = (select auth.uid())
-      and tm.role = 'reseller'
-      and tm.is_active = true
-  )
-);
+-- Order creation is backend-only: the Worker validates tier price, stock and totals atomically.
 create policy orders_update_owner on public.orders
 for update to authenticated
 using (private.is_tenant_owner(tenant_id))
@@ -465,16 +453,7 @@ using (
       and (private.is_tenant_owner(o.tenant_id) or o.reseller_id = (select auth.uid()))
   )
 );
-create policy order_items_insert_via_own_order on public.order_items
-for insert to authenticated
-with check (
-  exists (
-    select 1 from public.orders o
-    where o.id = order_id and o.tenant_id = tenant_id
-      and o.reseller_id = (select auth.uid())
-      and o.status = 'awaiting_payment'
-  )
-);
+-- Order item creation is backend-only to prevent client-side price/quantity manipulation.
 
 -- ASSETS: owner manages; tenant resellers can read published assets only.
 create policy assets_select_published_or_owner on public.assets
@@ -509,6 +488,7 @@ create policy payouts_insert_self on public.payout_requests
 for insert to authenticated
 with check (
   user_id = (select auth.uid())
+  and status = 'requested'
   and private.is_tenant_member(tenant_id)
   and exists (
     select 1 from public.tenant_memberships tm
@@ -516,6 +496,12 @@ with check (
       and tm.user_id = (select auth.uid())
       and tm.role = 'reseller'
       and tm.is_active = true
+  )
+  and exists (
+    select 1 from public.wallets w
+    where w.id = wallet_id
+      and w.tenant_id = tenant_id
+      and w.user_id = (select auth.uid())
   )
 );
 -- No client UPDATE grant: payout approval/payment is backend-only.
