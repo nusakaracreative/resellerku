@@ -181,7 +181,7 @@ export default function OrdersPage() {
 
   const ocr = (selected?.receipt_ocr_data ?? {}) as OcrData;
   const amountMatched = selected?.receipt_ocr_status === "matched" && ocr.match_status === true;
-  const pendingReview = selected?.payment_status !== "verified";
+  const pendingReview = selected?.status === "payment_review" && selected?.payment_status === "submitted";
 
   return (
     <div className="space-y-6">
