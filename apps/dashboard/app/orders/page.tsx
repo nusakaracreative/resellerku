@@ -175,7 +175,7 @@ export default function OrdersPage() {
 
   const visibleOrders = useMemo(() => orders.filter(order => {
     const statusOk = filter === "all" || (filter === "review" ? order.payment_status === "submitted" || order.status === "payment_review" : order.payment_status === "verified");
-    const text = `${order.order_number} ${order.reseller_name} ${order.recipient_name}`.toLowerCase();
+    const text = `${order.id} ${order.order_number} ${order.reseller_name} ${order.recipient_name}`.toLowerCase();
     return statusOk && text.includes(query.toLowerCase());
   }), [orders, filter, query]);
 
