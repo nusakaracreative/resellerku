@@ -10,6 +10,7 @@ export const metadata: Metadata = {
   },
   description: "Business owner dashboard untuk mengelola pesanan, katalog, dan marketing assets Resellerku.",
   applicationName: "Resellerku",
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
