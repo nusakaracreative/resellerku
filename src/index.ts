@@ -234,6 +234,10 @@ async function verifyReceipt(request: Request, env: Env): Promise<Response> {
   const bearer = (request.headers.get("Authorization") ?? "").match(/^Bearer\s+(.+)$/i);
   if (!bearer) return json(request, env, { error: "Bearer access token diperlukan." }, 401);
 
+  const contentLength = Number(request.headers.get("Content-Length") ?? "0");
+  if (Number.isFinite(contentLength) && contentLength > 8_500_000) {
+    return json(request, env, { error: "Payload terlalu besar." }, 413);
+  }
   const raw = await request.text();
   if (raw.length > 8_500_000) return json(request, env, { error: "Payload terlalu besar." }, 413);
   let body: Body;
