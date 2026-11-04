@@ -479,7 +479,7 @@ async function ownerOrderAction(
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
     return json(request, env, { error: "Konfigurasi Supabase Worker belum lengkap." }, 500);
   }
-  const bearer = (request.headers.get("Authorization") ?? "").match(/^Bearer\\s+(.+)$/i);
+  const bearer = (request.headers.get("Authorization") ?? "").match(/^Bearer (.+)$/i);
   if (!bearer) return json(request, env, { error: "Bearer access token diperlukan." }, 401);
 
   const db = client(env);
