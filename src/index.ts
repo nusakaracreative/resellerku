@@ -326,7 +326,7 @@ async function verifyReceipt(request: Request, env: Env): Promise<Response> {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !env.GEMINI_API_KEY) {
     return json(request, env, { error: "Konfigurasi Worker belum lengkap." }, 500);
   }
-  const bearer = (request.headers.get("Authorization") ?? "").match(/^Bearer\s+(.+)$/i);
+  const bearer = (request.headers.get("Authorization") ?? "").match(/^Bearer (.+)$/i);
   if (!bearer) return json(request, env, { error: "Bearer access token diperlukan." }, 401);
 
   const contentLength = Number(request.headers.get("Content-Length") ?? "0");
