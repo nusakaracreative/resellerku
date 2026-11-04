@@ -77,3 +77,14 @@ Apply the Storage SQL files in this order when recreating the project:
 ## Cloudflare Worker secret management
 
 Set `SUPABASE_SERVICE_ROLE_KEY` and `GEMINI_API_KEY` as **encrypted Production secrets** in the Cloudflare Worker dashboard (Settings → Variables and Secrets). Do not commit secret values or declare dashboard-managed secret values in `wrangler.toml`. The Worker reads them from its runtime environment.
+
+
+## Product catalog semantics
+
+- \`products.base_price\`: owner-side base unit cost / HPP in tenant currency.
+- \`products.weight_grams\`: packaged gross unit weight in grams, used for shipping calculation.
+- \`products.is_demo_data\`: synthetic demo record marker; exclude these rows from real business/financial reports.
+- \`product_tier_prices.selling_price\`: suggested customer selling price per reseller tier.
+- \`product_tier_prices.commission_amount\`: reseller commission per unit; release only under the order commission-release rules.
+
+For a fresh database, apply \`supabase/product_catalog_fields.sql\` after the initial schema/security migrations. The demo product sample in \`supabase/demo_seed.sql\` is intended only for the existing internal \`Resellerku Demo Store\` tenant and must not be used as a production brand seed.
