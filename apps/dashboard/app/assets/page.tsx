@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 type Asset = {
@@ -73,7 +73,7 @@ export default function AssetsPage() {
     setTitle(""); setCampaign(""); setDescription(""); setCopywriting(""); setAssetType("image"); setFile(null); setPublishNow(true);
   };
 
-  const saveAsset = async (event: React.FormEvent<HTMLFormElement>) => {
+  const saveAsset = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!tenantId || !userId) { setError("Tenant belum tervalidasi. Refresh halaman."); return; }
     if (!file && !copywriting.trim()) { setError("Unggah file atau isi teks copywriting."); return; }
