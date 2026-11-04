@@ -1,13 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
-  const search = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -50,7 +49,6 @@ export default function LoginPage() {
         <p className="mb-2 text-[10px] font-bold uppercase tracking-[.22em] text-[#FF8058]">Owner access</p>
         <h1 className="text-2xl font-bold tracking-tight">Masuk ke Command Center</h1>
         <p className="mt-2 text-sm leading-6 text-slate-400">Gunakan akun Business Owner yang terdaftar pada tenant Resellerku.</p>
-        {search.get("reason") === "owner-only" && <p className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-200">Akun berhasil login, tetapi belum memiliki role Business Owner aktif.</p>}
         {error && <p role="alert" className="mt-4 rounded-xl border border-rose-400/20 bg-rose-400/10 p-3 text-xs text-rose-200">{error}</p>}
         <form onSubmit={submit} className="mt-7 space-y-4">
           <label className="block text-xs font-semibold text-slate-300">Email
