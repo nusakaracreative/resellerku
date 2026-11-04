@@ -193,8 +193,8 @@ export default function OrdersPage() {
       {notice && <div role="status" className="rounded-xl border border-emerald-400/20 bg-emerald-400/[.08] px-4 py-3 text-sm text-emerald-200">{notice}</div>}
       {error && <div role="alert" className="rounded-xl border border-rose-400/20 bg-rose-400/[.08] px-4 py-3 text-sm text-rose-200">{error}</div>}
 
-      <div className="orders-split grid min-h-[660px] grid-cols-[minmax(300px,35fr)_minmax(0,65fr)] gap-5">
-        <section className="surface flex min-h-[660px] flex-col overflow-hidden rounded-2xl">
+      <div className="orders-split grid h-[min(820px,calc(100vh-230px))] min-h-[560px] grid-cols-[minmax(300px,35fr)_minmax(0,65fr)] gap-5">
+        <section className="surface flex min-h-0 flex-col overflow-hidden rounded-2xl">
           <div className="border-b border-white/[.08] p-4">
             <div className="flex items-center justify-between"><h2 className="font-bold">Antrean verifikasi</h2><span className="text-[11px] text-slate-500">{visibleOrders.length} ditampilkan</span></div>
             <input className="field mt-4 text-sm" placeholder="Cari ID atau nama reseller…" value={query} onChange={e => setQuery(e.target.value)} />
@@ -216,7 +216,7 @@ export default function OrdersPage() {
           <div className="border-t border-white/[.08] px-4 py-3 text-[10px] text-slate-600">Data dibatasi pada tenant aktif dan 100 pesanan terbaru.</div>
         </section>
 
-        <section className="surface min-w-0 rounded-2xl p-5 sm:p-6">
+        <section className="surface scrollbar-thin min-h-0 min-w-0 overflow-y-auto rounded-2xl p-5 sm:p-6">
           {!selected ? (
             <div className="grid min-h-[590px] place-items-center text-center"><div><div className="text-4xl text-slate-700">◎</div><p className="mt-3 font-semibold text-slate-300">Pilih pesanan dari antrean</p><p className="mt-1 text-xs text-slate-500">Detail pesanan dan bukti OCR akan ditampilkan di sini.</p></div></div>
           ) : (
