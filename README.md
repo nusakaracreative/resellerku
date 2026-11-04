@@ -14,7 +14,10 @@ Cloudflare Worker for authenticated receipt OCR, private Supabase Storage and Ge
 
 ## Endpoints
 - GET /health
+- GET /health/dependencies
 - POST /api/verify-receipt
+- GET /api/orders/:id/receipt-url (active tenant owner only; 120-second signed private receipt URL)
+- POST /api/orders/:id/approve-payment (active tenant owner only; requires explicit settlement confirmation and writes audit log)
 
 The OCR route requires Authorization: Bearer <supabase_access_token>.
 Send exactly one image source with order_id:
@@ -88,3 +91,16 @@ Set `SUPABASE_SERVICE_ROLE_KEY` and `GEMINI_API_KEY` as **encrypted Production s
 - \`product_tier_prices.commission_amount\`: reseller commission per unit; release only under the order commission-release rules.
 
 For a fresh database, apply \`supabase/product_catalog_fields.sql\` after the initial schema/security migrations. The demo product sample in \`supabase/demo_seed.sql\` is intended only for the existing internal \`Resellerku Demo Store\` tenant and must not be used as a production brand seed.
+
+
+## Stage 3 — Owner Dashboard
+
+The Next.js App Router frontend is maintained separately in `apps/dashboard`; it does not replace or alter the Worker deployment target.
+
+See [apps/dashboard/README.md](apps/dashboard/README.md) for local setup, environment variables, owner access checks, and the dashboard flow.
+
+Worker owner routes added for the dashboard:
+- `GET /api/orders/:id/receipt-url`: checks bearer session and active owner membership before creating a 120-second signed URL for the private receipt.
+- `POST /api/orders/:id/approve-payment`: requires `{ "confirm_settlement": true }`, verifies active owner membership, atomically moves a submitted payment-review order to `verified/processing`, and records an audit event.
+
+OCR amount matching never confirms bank settlement. The dashboard always requires a separate owner confirmation before payment approval.
