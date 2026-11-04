@@ -37,7 +37,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
-    if (pathname === "/login") {
+    if (pathname === "/login" || pathname.startsWith("/store-preview")) {
       setBusy(false);
       setAllowed(true);
       return;
@@ -106,7 +106,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
     router.refresh();
   };
 
-  if (pathname === "/login") return <>{children}</>;
+  if (pathname === "/login" || pathname.startsWith("/store-preview")) return <>{children}</>;
   if (busy || !allowed) {
     return (
       <main className="grid min-h-screen place-items-center px-6">
