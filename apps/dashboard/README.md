@@ -53,3 +53,41 @@ The backend must be deployed after Stage 3 so these owner endpoints are availabl
 - `POST /api/orders/:id/approve-payment`
 
 Keep the Worker `ALLOWED_ORIGINS` configured for the local dashboard origin during development and the real dashboard origin after launch.
+
+
+## Cloudflare preview deployment
+
+The dashboard is a separate Worker from `resellerku-api`. It uses the OpenNext Cloudflare adapter so the existing Next.js App Router application can be deployed without replacing the API Worker.
+
+### Workers Builds settings
+
+Create a **new Worker** from the existing GitHub repository `nusakaracreative/resellerku` (branch `main`) and keep its name as `resellerku-dashboard`.
+
+Set these build settings:
+
+- Root directory: `apps/dashboard`
+- Build command: `npx opennextjs-cloudflare build`
+- Deploy command: `npx opennextjs-cloudflare deploy`
+- Keep the `workers.dev` route enabled.
+
+Add these **Build variables** before the first build. They are read during compilation because Next.js embeds `NEXT_PUBLIC_*` values into the browser bundle:
+
+- `NEXT_PUBLIC_SUPABASE_URL`: the existing Supabase project URL.
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: the Supabase publishable key (`sb_publishable_...`), never the secret/service-role key.
+- `NEXT_PUBLIC_RESELLERKU_API_URL`: `https://resellerku-api.nusakaracreative.workers.dev`.
+- `NEXT_PUBLIC_DASHBOARD_PREVIEW`: `true` to display the clearly labelled sample order when the tenant has no orders.
+
+The expected preview URL is `https://resellerku-dashboard.nusakaracreative.workers.dev`. Sign-in is still required; the browser app checks for an active Business Owner membership and Supabase RLS remains the data authorization boundary.
+
+The API Worker CORS allowlist includes this preview origin and the local development origin. The API Worker remains a separate service.
+
+### Local commands
+
+```bash
+npm install
+npm run typecheck
+npm run cf:build
+npm run cf:preview
+```
+
+The existing `npm run dev` command remains unchanged for local Next.js development. `.env.local` is not committed to GitHub.
