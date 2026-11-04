@@ -5,11 +5,11 @@ workers_dev = true
 
 [vars]
 # Replace with the actual Supabase project URL.
-SUPABASE_URL = "https://YOUR_PROJECT_REF.supabase.co"
+SUPABASE_URL = "https://akbtmzkqjwsayafywrkg.supabase.co"
 GEMINI_MODEL = "gemini-3.8-flash"
 GEMINI_API_VERSION = "v1beta"
 RECEIPTS_BUCKET = "receipts"
-ALLOWED_ORIGINS = "http://localhost:3000,https://app.your-domain.com"
+ALLOWED_ORIGINS = "http://localhost:3000"
 MAX_IMAGE_BYTES = "6291456"
 
 [secrets]
