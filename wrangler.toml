@@ -1,0 +1,16 @@
+name = "resellerku-api"
+main = "src/index.ts"
+compatibility_date = "2026-11-04"
+workers_dev = true
+
+[vars]
+# Replace with the actual Supabase project URL.
+SUPABASE_URL = "https://YOUR_PROJECT_REF.supabase.co"
+GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_API_VERSION = "v1beta"
+RECEIPTS_BUCKET = "receipts"
+ALLOWED_ORIGINS = "http://localhost:3000,https://app.your-domain.com"
+MAX_IMAGE_BYTES = "6291456"
+
+[secrets]
+required = ["SUPABASE_SERVICE_ROLE_KEY", "GEMINI_API_KEY"]
