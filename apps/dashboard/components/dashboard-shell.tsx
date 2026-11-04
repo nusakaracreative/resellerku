@@ -13,6 +13,7 @@ import {
   LogOut,
   Building2,
   ShieldCheck,
+  Eye,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -145,6 +146,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
               <ShieldCheck size={12} strokeWidth={1.5} />
               Business Owner
             </div>
+            {process.env.NEXT_PUBLIC_DASHBOARD_PREVIEW === "true" && <p className="mt-2 flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[.14em] text-amber-300"><Eye size={11} strokeWidth={1.5} /> Preview · data simulasi</p>}
           </div>
         </div>
 
