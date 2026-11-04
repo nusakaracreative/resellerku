@@ -72,3 +72,8 @@ Apply the Storage SQL files in this order when recreating the project:
 4. \`supabase/storage_product_policy_fix.sql\`
 
 \`supabase/storage_policies.sql\` and its qualification fix define tenant-scoped Storage RLS policies. Keep \`receipts\` without client-facing policies; the receipt Worker accesses it with the service-role key.
+
+
+## Cloudflare Worker secret management
+
+Set `SUPABASE_SERVICE_ROLE_KEY` and `GEMINI_API_KEY` as **encrypted Production secrets** in the Cloudflare Worker dashboard (Settings → Variables and Secrets). Do not commit secret values or declare dashboard-managed secret values in `wrangler.toml`. The Worker reads them from its runtime environment.
