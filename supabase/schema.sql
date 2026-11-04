@@ -367,7 +367,7 @@ with check (id = (select auth.uid()));
 
 -- TENANTS: only active members can read; creator can create; creator can update.
 create policy tenants_select_member on public.tenants
-for select to authenticated using (private.is_tenant_member(id));
+for select to authenticated using (created_by = (select auth.uid()) or private.is_tenant_member(id));
 create policy tenants_insert_creator on public.tenants
 for insert to authenticated with check (created_by = (select auth.uid()));
 create policy tenants_update_creator on public.tenants
