@@ -99,6 +99,12 @@ function sniffMime(bytes: Uint8Array): ImageFile["mimeType"] {
       String.fromCharCode(...bytes.slice(8, 12)) === "WEBP") return "image/webp";
   throw new HttpError(415, "Format gambar harus JPEG, PNG, atau WebP.");
 }
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
 function toBase64(bytes: Uint8Array): string {
   let binary = "";
   for (let i = 0; i < bytes.length; i += 0x8000) {
@@ -158,7 +164,7 @@ async function resolveImage(env: Env, db: SupabaseClient, order: Order, body: Bo
     const ext = mimeType === "image/jpeg" ? "jpg" : mimeType === "image/png" ? "png" : "webp";
     path = order.tenant_id + "/" + order.id + "/" + crypto.randomUUID() + "." + ext;
     const { error } = await db.storage.from(bucket).upload(
-      path, new Blob([bytes], { type: mimeType }),
+      path, new Blob([toArrayBuffer(bytes)], { type: mimeType }),
       { contentType: mimeType, upsert: false, cacheControl: "3600" },
     );
     if (error) {
