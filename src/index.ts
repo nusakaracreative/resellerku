@@ -469,6 +469,101 @@ async function verifyReceipt(request: Request, env: Env): Promise<Response> {
   });
 }
 
+
+async function ownerOrderAction(
+  request: Request,
+  env: Env,
+  orderId: string,
+  action: "receipt-url" | "approve-payment",
+): Promise<Response> {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
+    return json(request, env, { error: "Konfigurasi Supabase Worker belum lengkap." }, 500);
+  }
+  const bearer = (request.headers.get("Authorization") ?? "").match(/^Bearer\\s+(.+)$/i);
+  if (!bearer) return json(request, env, { error: "Bearer access token diperlukan." }, 401);
+
+  const db = client(env);
+  const { data: authData, error: authError } = await db.auth.getUser(bearer[1]);
+  const user = authData?.user;
+  if (authError || !user) return json(request, env, { error: "Sesi tidak valid atau kedaluwarsa." }, 401);
+
+  const { data: row, error: orderError } = await db.from("orders")
+    .select("id,tenant_id,reseller_id,order_number,status,payment_status,total_amount,receipt_object_path,receipt_ocr_status,notes")
+    .eq("id", orderId).maybeSingle();
+  if (orderError) {
+    console.error("owner order lookup failed", orderError.message);
+    return json(request, env, { error: "Gagal membaca pesanan." }, 500);
+  }
+  if (!row) return json(request, env, { error: "Pesanan tidak ditemukan." }, 404);
+  const order = row as Order;
+
+  const { data: membership, error: membershipError } = await db.from("tenant_memberships")
+    .select("role").eq("tenant_id", order.tenant_id).eq("user_id", user.id)
+    .eq("role", "owner").eq("is_active", true).maybeSingle();
+  if (membershipError || !membership) {
+    return json(request, env, { error: "Akses hanya untuk Business Owner aktif tenant ini." }, 403);
+  }
+
+  if (action === "receipt-url") {
+    if (!order.receipt_object_path) {
+      return json(request, env, { error: "Pesanan belum memiliki file bukti transfer." }, 404);
+    }
+    try {
+      assertPath(order.receipt_object_path, order);
+    } catch (error) {
+      return json(request, env, { error: error instanceof Error ? error.message : "Path struk tidak valid." }, 403);
+    }
+    const { data, error } = await db.storage
+      .from(env.RECEIPTS_BUCKET ?? "receipts")
+      .createSignedUrl(order.receipt_object_path, 120);
+    if (error || !data?.signedUrl) {
+      console.error("receipt signed URL failed", error?.message);
+      return json(request, env, { error: "Bukti transfer tidak dapat diakses saat ini." }, 502);
+    }
+    return json(request, env, { signed_url: data.signedUrl, expires_in: 120 });
+  }
+
+  const payload = await request.json().catch(() => null) as { confirm_settlement?: unknown } | null;
+  if (payload?.confirm_settlement !== true) {
+    return json(request, env, { error: "Konfirmasi settlement owner diperlukan." }, 400);
+  }
+  if (order.payment_status !== "submitted" || order.status !== "payment_review") {
+    return json(request, env, { error: "Status pesanan berubah. Muat ulang sebelum mengambil keputusan." }, 409);
+  }
+
+  const verifiedAt = new Date().toISOString();
+  const { data: saved, error: saveError } = await db.from("orders").update({
+    payment_status: "verified",
+    status: "processing",
+    receipt_verified_by: user.id,
+    receipt_verified_at: verifiedAt,
+  })
+    .eq("id", order.id).eq("tenant_id", order.tenant_id)
+    .eq("payment_status", "submitted").eq("status", "payment_review")
+    .select("id,status,payment_status,receipt_verified_at").maybeSingle();
+
+  if (saveError || !saved) {
+    console.error("owner payment confirmation failed", saveError?.message ?? "order state changed");
+    return json(request, env, { error: "Pesanan tidak berhasil diperbarui. Periksa status terbaru." }, 409);
+  }
+
+  await writeAudit(db, order, user.id, "payment_settlement_confirmed_by_owner", {
+    order_number: order.order_number,
+    previous_payment_status: "submitted",
+    payment_status: "verified",
+    order_status: "processing",
+    receipt_ocr_status: order.receipt_ocr_status,
+    confirmed_by_owner: true,
+    confirmed_at: verifiedAt,
+  });
+
+  return json(request, env, {
+    ok: true,
+    order: saved,
+    message: "Settlement dikonfirmasi oleh owner. Pesanan masuk ke tahap processing.",
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -492,6 +587,19 @@ export default {
         console.error("dependency health check failed", error);
         return json(request, env, { ok: false, error: "Pemeriksaan dependency gagal." }, 503);
       }
+    }
+    const ownerOrderMatch = url.pathname.match(/^\\/api\\/orders\\/([0-9a-f-]{36})\\/(receipt-url|approve-payment)$/i);
+    if (ownerOrderMatch) {
+      const orderId = ownerOrderMatch[1];
+      const action = ownerOrderMatch[2] as "receipt-url" | "approve-payment";
+      if (!validUuid(orderId)) return json(request, env, { error: "ID pesanan tidak valid." }, 400);
+      if (action === "receipt-url" && request.method === "GET") {
+        return await ownerOrderAction(request, env, orderId, action);
+      }
+      if (action === "approve-payment" && request.method === "POST") {
+        return await ownerOrderAction(request, env, orderId, action);
+      }
+      return json(request, env, { error: "Method tidak diizinkan untuk endpoint ini." }, 405);
     }
     if (url.pathname === "/api/verify-receipt" && request.method === "POST") {
       try { return await verifyReceipt(request, env); }
