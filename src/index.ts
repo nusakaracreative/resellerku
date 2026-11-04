@@ -26,6 +26,7 @@ interface ImageFile {
   bytes: Uint8Array;
   mimeType: "image/jpeg" | "image/png" | "image/webp";
   objectPath: string;
+  uploaded: boolean;
 }
 class HttpError extends Error {
   constructor(public statusCode: number, message: string) { super(message); this.name = "HttpError"; }
@@ -183,7 +184,7 @@ async function resolveImage(env: Env, db: SupabaseClient, order: Order, body: Bo
     }
   }
   assertPath(path, order);
-  return { bytes, mimeType, objectPath: path };
+  return { bytes, mimeType, objectPath: path, uploaded: Boolean(body.receipt_image_base64) };
 }
 async function geminiOcr(env: Env, image: ImageFile): Promise<{ amount: number; model: string }> {
   const model = env.GEMINI_MODEL ?? "gemini-3.8-flash";
@@ -238,6 +239,9 @@ async function verifyReceipt(request: Request, env: Env): Promise<Response> {
   let body: Body;
   try { body = JSON.parse(raw) as Body; }
   catch { return json(request, env, { error: "Body harus JSON yang valid." }, 400); }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json(request, env, { error: "Body harus berupa object JSON." }, 400);
+  }
 
   if (!body.order_id || !validUuid(body.order_id)) return json(request, env, { error: "order_id harus UUID valid." }, 400);
   const sources = [body.receipt_image_url, body.receipt_object_path, body.receipt_image_base64]
@@ -298,6 +302,10 @@ async function verifyReceipt(request: Request, env: Env): Promise<Response> {
     .select("id").maybeSingle();
   if (claimError || !claim) {
     console.error("OCR claim failed", claimError?.message);
+    if (image.uploaded) {
+      const { error: cleanupError } = await db.storage.from(env.RECEIPTS_BUCKET ?? "receipts").remove([image.objectPath]);
+      if (cleanupError) console.error("orphan receipt cleanup failed", cleanupError.message);
+    }
     return json(request, env, { error: "Pesanan berubah atau sedang diproses. Muat ulang lalu coba lagi." }, 409);
   }
 
@@ -323,7 +331,7 @@ async function verifyReceipt(request: Request, env: Env): Promise<Response> {
     ". OCR amount match is not bank settlement confirmation.";
   const notes = existingNotes ? existingNotes + "\n" + note : note;
 
-  const { error: saveError } = await db.from("orders").update({
+  const { data: saved, error: saveError } = await db.from("orders").update({
     // OCR match is not bank settlement. Owner/bank confirmation must separately verify payment.
     status: "payment_review",
     payment_status: "submitted",
@@ -336,10 +344,11 @@ async function verifyReceipt(request: Request, env: Env): Promise<Response> {
     notes,
   })
     .eq("id", order.id).eq("tenant_id", order.tenant_id)
-    .eq("status", "payment_review").eq("receipt_ocr_status", "processing");
+    .eq("status", "payment_review").eq("receipt_ocr_status", "processing")
+    .select("id").maybeSingle();
 
-  if (saveError) {
-    console.error("save OCR result failed", saveError.message);
+  if (saveError || !saved) {
+    console.error("save OCR result failed", saveError?.message ?? "order state changed before result persistence");
     return json(request, env, { error: "OCR selesai tetapi hasil gagal disimpan. Periksa pesanan sebelum mengulang." }, 500);
   }
   await writeAudit(db, order, user.id, matched ? "receipt_ocr_matched" : "receipt_ocr_manual_review", {
