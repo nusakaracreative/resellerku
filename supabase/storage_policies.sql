@@ -67,8 +67,8 @@ using (
   and exists (
     select 1
     from public.products p
-    where p.tenant_id = private.storage_path_tenant_id(name)
-      and p.id = private.storage_path_product_id(name)
+    where p.tenant_id = private.storage_path_tenant_id(objects.name)
+      and p.id = private.storage_path_product_id(objects.name)
       and (p.status = 'active' or private.is_tenant_owner(p.tenant_id))
   )
 );
@@ -81,8 +81,8 @@ with check (
   and private.is_tenant_owner(private.storage_path_tenant_id(name))
   and exists (
     select 1 from public.products p
-    where p.tenant_id = private.storage_path_tenant_id(name)
-      and p.id = private.storage_path_product_id(name)
+    where p.tenant_id = private.storage_path_tenant_id(objects.name)
+      and p.id = private.storage_path_product_id(objects.name)
   )
 );
 
@@ -94,8 +94,8 @@ using (
   and private.is_tenant_owner(private.storage_path_tenant_id(name))
   and exists (
     select 1 from public.products p
-    where p.tenant_id = private.storage_path_tenant_id(name)
-      and p.id = private.storage_path_product_id(name)
+    where p.tenant_id = private.storage_path_tenant_id(objects.name)
+      and p.id = private.storage_path_product_id(objects.name)
   )
 )
 with check (
@@ -103,8 +103,8 @@ with check (
   and private.is_tenant_owner(private.storage_path_tenant_id(name))
   and exists (
     select 1 from public.products p
-    where p.tenant_id = private.storage_path_tenant_id(name)
-      and p.id = private.storage_path_product_id(name)
+    where p.tenant_id = private.storage_path_tenant_id(objects.name)
+      and p.id = private.storage_path_product_id(objects.name)
   )
 );
 
@@ -116,8 +116,8 @@ using (
   and private.is_tenant_owner(private.storage_path_tenant_id(name))
   and exists (
     select 1 from public.products p
-    where p.tenant_id = private.storage_path_tenant_id(name)
-      and p.id = private.storage_path_product_id(name)
+    where p.tenant_id = private.storage_path_tenant_id(objects.name)
+      and p.id = private.storage_path_product_id(objects.name)
   )
 );
 
