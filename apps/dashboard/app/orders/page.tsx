@@ -189,7 +189,7 @@ export default function OrdersPage() {
     if (!visibleOrders.length) return;
     const csvCell = (value: unknown) => {
       let text = String(value ?? "");
-      if (/^[=+\\-@]/.test(text) || text.startsWith("\\t") || text.startsWith("\\r")) text = "'" + text;
+      if (["=", "+", "-", "@", "\t", "\r"].includes(text[0] ?? "")) text = "'" + text;
       return `"${text.replaceAll('"', '""')}"`;
     };
     const header = [
