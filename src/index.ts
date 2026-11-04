@@ -193,7 +193,7 @@ async function resolveImage(env: Env, db: SupabaseClient, order: Order, body: Bo
   return { bytes, mimeType, objectPath: path, uploaded: Boolean(body.receipt_image_base64) };
 }
 async function geminiOcr(env: Env, image: ImageFile): Promise<{ amount: number; model: string }> {
-  const model = env.GEMINI_MODEL ?? "gemini-3.8-flash";
+  const model = env.GEMINI_MODEL ?? "gemini-3.6-flash";
   const version = env.GEMINI_API_VERSION ?? "v1beta";
   const endpoint = "https://generativelanguage.googleapis.com/" + version +
     "/models/" + encodeURIComponent(model) + ":generateContent";
@@ -234,45 +234,88 @@ async function writeAudit(db: SupabaseClient, order: Order, userId: string, acti
   if (error) console.error("audit log insert failed", error.message);
 }
 async function dependencyHealth(request: Request, env: Env): Promise<Response> {
-  const model = env.GEMINI_MODEL ?? "gemini-3.8-flash";
+  const model = env.GEMINI_MODEL ?? "gemini-3.6-flash";
   const version = env.GEMINI_API_VERSION ?? "v1beta";
-  const checks = await Promise.allSettled([
+  const supabaseUrl = env.SUPABASE_URL.replace(/\/+$/, "");
+
+  const [supabaseResult, geminiResult] = await Promise.all([
     (async () => {
-      const supabaseUrl = env.SUPABASE_URL.replace(/\/+$/, "");
-      const response = await fetch(supabaseUrl + "/rest/v1/tenants?select=id&limit=1", {
-        method: "GET",
-        headers: {
-          apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-          Authorization: "Bearer " + env.SUPABASE_SERVICE_ROLE_KEY,
-        },
-        signal: AbortSignal.timeout(10_000),
-      });
-      return response.ok;
+      try {
+        const response = await fetch(supabaseUrl + "/rest/v1/tenants?select=id&limit=1", {
+          method: "GET",
+          headers: {
+            apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+            Authorization: "Bearer " + env.SUPABASE_SERVICE_ROLE_KEY,
+          },
+          signal: AbortSignal.timeout(10_000),
+        });
+        return { ok: response.ok, http_status: response.status };
+      } catch {
+        return { ok: false, http_status: 0 };
+      }
     })(),
     (async () => {
-      const response = await fetch(
-        "https://generativelanguage.googleapis.com/" + version + "/models/" + encodeURIComponent(model),
-        {
-          method: "GET",
-          headers: { "x-goog-api-key": env.GEMINI_API_KEY },
-          signal: AbortSignal.timeout(10_000),
-        },
-      );
-      return response.ok;
+      try {
+        const response = await fetch(
+          "https://generativelanguage.googleapis.com/" + version + "/models/" + encodeURIComponent(model),
+          {
+            method: "GET",
+            headers: { "x-goog-api-key": env.GEMINI_API_KEY },
+            signal: AbortSignal.timeout(10_000),
+          },
+        );
+        const payload = await response.json().catch(() => null) as {
+          error?: { status?: string; code?: number };
+          supportedGenerationMethods?: string[];
+        } | null;
+        const supportsGenerateContent =
+          response.ok && (payload?.supportedGenerationMethods ?? []).includes("generateContent");
+        let reason = "available";
+        if (!response.ok) {
+          if (response.status === 400) reason = "bad_request";
+          else if (response.status === 401) reason = "invalid_api_key";
+          else if (response.status === 403) reason = "permission_denied_check_key_restrictions_project_or_billing";
+          else if (response.status === 404) reason = "model_not_found";
+          else if (response.status === 429) reason = "quota_or_rate_limit";
+          else reason = "google_api_error";
+        } else if (!supportsGenerateContent) {
+          reason = "model_does_not_support_generate_content";
+        }
+        return {
+          ok: supportsGenerateContent,
+          http_status: response.status,
+          reason,
+          api_error_status: payload?.error?.status ?? null,
+          supports_generate_content: supportsGenerateContent,
+        };
+      } catch {
+        return {
+          ok: false,
+          http_status: 0,
+          reason: "network_error",
+          api_error_status: null,
+          supports_generate_content: false,
+        };
+      }
     })(),
   ]);
 
-  const supabaseOk = checks[0].status === "fulfilled" && checks[0].value === true;
-  const geminiOk = checks[1].status === "fulfilled" && checks[1].value === true;
   const configured = Boolean(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY && env.GEMINI_API_KEY);
-  const ok = configured && supabaseOk && geminiOk;
+  const ok = configured && supabaseResult.ok && geminiResult.ok;
 
   return json(request, env, {
     ok,
     service: "resellerku-api",
     dependencies: {
-      supabase: configured ? (supabaseOk ? "connected" : "unavailable") : "not_configured",
-      gemini: configured ? (geminiOk ? "available" : "unavailable") : "not_configured",
+      supabase: configured ? (supabaseResult.ok ? "connected" : "unavailable") : "not_configured",
+      gemini: configured ? (geminiResult.ok ? "available" : "unavailable") : "not_configured",
+    },
+    diagnostics: {
+      supabase_http_status: supabaseResult.http_status,
+      gemini_http_status: geminiResult.http_status,
+      gemini_reason: geminiResult.reason,
+      gemini_api_error_status: geminiResult.api_error_status,
+      gemini_supports_generate_content: geminiResult.supports_generate_content,
     },
     model,
     checked_at: new Date().toISOString(),
@@ -371,7 +414,7 @@ async function verifyReceipt(request: Request, env: Env): Promise<Response> {
     const message = error instanceof Error ? error.message : "OCR provider error";
     await db.from("orders").update({
       receipt_ocr_status: "failed",
-      receipt_ocr_data: { provider: "gemini", model: env.GEMINI_MODEL ?? "gemini-3.8-flash", error: message, processed_at: new Date().toISOString() },
+      receipt_ocr_data: { provider: "gemini", model: env.GEMINI_MODEL ?? "gemini-3.6-flash", error: message, processed_at: new Date().toISOString() },
     }).eq("id", order.id).eq("tenant_id", order.tenant_id).eq("receipt_ocr_status", "processing");
     await writeAudit(db, order, user.id, "receipt_ocr_failed", { order_number: order.order_number, error: message });
     return json(request, env, { error: message }, error instanceof HttpError ? error.statusCode : 502);
