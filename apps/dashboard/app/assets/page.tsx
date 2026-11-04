@@ -135,7 +135,7 @@ export default function AssetsPage() {
     <div className="space-y-7">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div><p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#FF8058]">Reseller enablement</p><h1 className="mt-2 text-3xl font-bold tracking-tight">Marketing Asset Hub</h1><p className="mt-2 text-sm text-slate-400">Kelola materi promosi, video kampanye, dan copywriting untuk jaringan reseller.</p></div>
-        <button onClick={() => { setError(""); setModalOpen(true); }} className="btn-primary"><Plus size={16} strokeWidth={1.5} /> Unggah Aset Baru</button>
+        <button onClick={() => { setError(""); setModalOpen(true); }} className="btn-primary"><span className="grid h-6 w-6 place-items-center rounded-lg bg-[#15303b]/45"><Plus size={15} strokeWidth={1.5} className="text-[#FF5722] drop-shadow-[0_0_6px_rgba(255,87,34,.3)]" /></span> Unggah Aset Baru</button>
       </header>
 
       {notice && <div role="status" className="rounded-xl border border-emerald-400/20 bg-emerald-400/[.08] px-4 py-3 text-sm text-emerald-200">{notice}</div>}
@@ -194,7 +194,7 @@ export default function AssetsPage() {
             </div>
             <div className="sticky bottom-0 z-10 flex shrink-0 justify-end gap-2 border-t border-gray-800 bg-[#15303b] px-6 py-4 shadow-[0_-10px_30px_rgba(0,0,0,.28)] sm:px-7">
               <button type="button" onClick={() => { if (!saving) { setModalOpen(false); resetForm(); } }} className="btn-secondary" disabled={saving}>Batal</button>
-              <button type="submit" disabled={saving} className="btn-primary min-w-36 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Menyimpan…" : <><Upload size={15} strokeWidth={1.5} /> Simpan aset</>}</button>
+              <button type="submit" disabled={saving} className="btn-primary min-w-36 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Menyimpan…" : <><span className="grid h-6 w-6 place-items-center rounded-lg bg-[#15303b]/45"><Upload size={15} strokeWidth={1.5} className="text-[#FF5722] drop-shadow-[0_0_6px_rgba(255,87,34,.3)]" /></span> Simpan aset</>}</button>
             </div>
           </form>
         </div>
