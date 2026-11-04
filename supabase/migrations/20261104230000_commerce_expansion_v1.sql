@@ -1940,7 +1940,7 @@ drop policy if exists resellerku_commerce_evidence_delete on storage.objects;
 create policy resellerku_commerce_evidence_delete on storage.objects
 for delete to authenticated using (
   bucket_id = 'commerce-evidence'
-  and (private.is_tenant_owner(private.storage_path_tenant_id(name)) or owner = (select auth.uid())::text)
+  and (private.is_tenant_owner(private.storage_path_tenant_id(name)) or owner = (select auth.uid()))
 );
 
 -- Storage uploads are performed by authenticated Owner or a pre-registered case-evidence author.
