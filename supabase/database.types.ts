@@ -440,6 +440,7 @@ export type Database = {
           description: string | null
           id: string
           image_url: string | null
+          is_demo_data: boolean
           name: string
           reserved_quantity: number
           sku: string | null
@@ -447,6 +448,7 @@ export type Database = {
           stock_quantity: number
           tenant_id: string
           updated_at: string
+          weight_grams: number
         }
         Insert: {
           base_price?: number
@@ -455,6 +457,7 @@ export type Database = {
           description?: string | null
           id?: string
           image_url?: string | null
+          is_demo_data?: boolean
           name: string
           reserved_quantity?: number
           sku?: string | null
@@ -462,6 +465,7 @@ export type Database = {
           stock_quantity?: number
           tenant_id: string
           updated_at?: string
+          weight_grams?: number
         }
         Update: {
           base_price?: number
@@ -470,6 +474,7 @@ export type Database = {
           description?: string | null
           id?: string
           image_url?: string | null
+          is_demo_data?: boolean
           name?: string
           reserved_quantity?: number
           sku?: string | null
@@ -477,6 +482,7 @@ export type Database = {
           stock_quantity?: number
           tenant_id?: string
           updated_at?: string
+          weight_grams?: number
         }
         Relationships: [
           {
