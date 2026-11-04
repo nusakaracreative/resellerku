@@ -510,4 +510,315 @@ with check (
 create policy audit_logs_select_owner on public.audit_logs
 for select to authenticated using (private.is_tenant_owner(tenant_id));
 
+
+-- FINAL HARDENING: tenant integrity, onboarding triggers, immutable ledgers.
+-- This project is new/empty. These constraints intentionally prevent cross-tenant references.
+
+-- Explicitly restrict schema creation and make exposed-schema table privileges opt-in.
+revoke create on schema public from public, anon, authenticated;
+grant usage on schema public to authenticated;
+revoke all on schema private from public, anon;
+grant usage on schema private to authenticated;
+
+-- Composite keys allow foreign keys to assert tenant ownership, not only object identity.
+alter table public.products
+  add constraint products_tenant_id_id_key unique (tenant_id, id);
+alter table public.orders
+  add constraint orders_tenant_id_id_key unique (tenant_id, id);
+alter table public.wallets
+  add column locked_balance numeric(14,2) not null default 0 check (locked_balance >= 0),
+  add constraint wallets_tenant_id_id_user_id_key unique (tenant_id, id, user_id);
+
+-- Replace single-column references with tenant-aware references.
+alter table public.product_tier_prices
+  drop constraint if exists product_tier_prices_product_id_fkey,
+  add constraint product_tier_prices_product_tenant_fk
+    foreign key (tenant_id, product_id)
+    references public.products (tenant_id, id) on delete cascade;
+
+alter table public.orders
+  drop constraint if exists orders_reseller_id_fkey,
+  add constraint orders_reseller_membership_fk
+    foreign key (tenant_id, reseller_id)
+    references public.tenant_memberships (tenant_id, user_id) on delete restrict;
+
+alter table public.order_items
+  drop constraint if exists order_items_order_id_fkey,
+  drop constraint if exists order_items_product_id_fkey,
+  add constraint order_items_order_tenant_fk
+    foreign key (tenant_id, order_id)
+    references public.orders (tenant_id, id) on delete cascade,
+  add constraint order_items_product_tenant_fk
+    foreign key (tenant_id, product_id)
+    references public.products (tenant_id, id) on delete restrict;
+
+alter table public.wallets
+  drop constraint if exists wallets_user_id_fkey,
+  add constraint wallets_membership_fk
+    foreign key (tenant_id, user_id)
+    references public.tenant_memberships (tenant_id, user_id) on delete restrict;
+
+alter table public.wallet_transactions
+  drop constraint if exists wallet_transactions_wallet_id_fkey,
+  drop constraint if exists wallet_transactions_user_id_fkey,
+  drop constraint if exists wallet_transactions_order_id_fkey,
+  add constraint wallet_transactions_wallet_owner_tenant_fk
+    foreign key (tenant_id, wallet_id, user_id)
+    references public.wallets (tenant_id, id, user_id) on delete restrict,
+  add constraint wallet_transactions_order_tenant_fk
+    foreign key (tenant_id, order_id)
+    references public.orders (tenant_id, id) on delete restrict,
+  add constraint wallet_transactions_posted_at_check
+    check (status <> 'posted' or posted_at is not null);
+
+alter table public.payout_requests
+  drop constraint if exists payout_requests_user_id_fkey,
+  drop constraint if exists payout_requests_wallet_id_fkey,
+  add constraint payout_requests_wallet_owner_tenant_fk
+    foreign key (tenant_id, wallet_id, user_id)
+    references public.wallets (tenant_id, id, user_id) on delete restrict,
+  add constraint payout_requests_membership_fk
+    foreign key (tenant_id, user_id)
+    references public.tenant_memberships (tenant_id, user_id) on delete restrict,
+  add constraint payout_requests_paid_at_check
+    check (status <> 'paid' or paid_at is not null);
+
+-- Keep wallet balances separated into pending, available and payout-locked funds.
+comment on column public.wallets.pending_balance is 'Commission not yet releasable (for example, order not delivered).';
+comment on column public.wallets.available_balance is 'Commission confirmed and available for payout.';
+comment on column public.wallets.locked_balance is 'Available funds held for payout requests currently being processed.';
+comment on column public.wallets.lifetime_earned is 'Lifetime confirmed commission; not a spendable balance.';
+
+-- New Auth users get a profile row. Metadata is used only for display profile fields, never authorization.
+create or replace function private.handle_new_auth_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $
+begin
+  insert into public.users (id, full_name)
+  values (
+    new.id,
+    coalesce(
+      nullif(new.raw_user_meta_data ->> 'full_name', ''),
+      nullif(new.raw_user_meta_data ->> 'name', '')
+    )
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$;
+
+revoke all on function private.handle_new_auth_user() from public, anon, authenticated;
+drop trigger if exists on_auth_user_created_resellerku on auth.users;
+create trigger on_auth_user_created_resellerku
+after insert on auth.users
+for each row execute function private.handle_new_auth_user();
+
+-- The tenant creator is automatically made its first owner.
+create or replace function private.handle_new_tenant_owner()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $
+begin
+  insert into public.tenant_memberships (tenant_id, user_id, role, reseller_tier)
+  values (new.id, new.created_by, 'owner', null)
+  on conflict (tenant_id, user_id) do nothing;
+  return new;
+end;
+$;
+
+revoke all on function private.handle_new_tenant_owner() from public, anon, authenticated;
+drop trigger if exists on_tenant_created_assign_owner on public.tenants;
+create trigger on_tenant_created_assign_owner
+after insert on public.tenants
+for each row execute function private.handle_new_tenant_owner();
+
+-- Owner dashboard can view basic profiles of users in the owner's active tenants.
+create or replace function private.can_view_user_profile(p_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $
+  select (select auth.uid()) is not null
+    and exists (
+      select 1
+      from public.tenant_memberships target
+      join public.tenant_memberships actor
+        on actor.tenant_id = target.tenant_id
+      where target.user_id = p_user_id
+        and target.is_active = true
+        and actor.user_id = (select auth.uid())
+        and actor.role = 'owner'
+        and actor.is_active = true
+    );
+$;
+
+revoke all on function private.can_view_user_profile(uuid) from public, anon;
+grant execute on function private.can_view_user_profile(uuid) to authenticated;
+
+drop policy if exists users_select_self on public.users;
+create policy users_select_self_or_tenant_owner on public.users
+for select to authenticated
+using (id = (select auth.uid()) or private.can_view_user_profile(id));
+
+-- Only an active tenant owner can change tenant business settings.
+drop policy if exists tenants_update_creator on public.tenants;
+create policy tenants_update_owner on public.tenants
+for update to authenticated
+using (private.is_tenant_owner(id))
+with check (private.is_tenant_owner(id));
+
+-- Prevent changing a business row's tenant_id after creation, even in privileged code.
+create or replace function private.prevent_tenant_reassignment()
+returns trigger
+language plpgsql
+set search_path = ''
+as $
+begin
+  if new.tenant_id is distinct from old.tenant_id then
+    raise exception 'tenant_id is immutable; create a new row in the target tenant'
+      using errcode = '23514';
+  end if;
+  return new;
+end;
+$;
+
+revoke all on function private.prevent_tenant_reassignment() from public, anon, authenticated;
+
+create trigger tenant_memberships_prevent_reassignment
+before update on public.tenant_memberships
+for each row execute function private.prevent_tenant_reassignment();
+create trigger products_prevent_reassignment
+before update on public.products
+for each row execute function private.prevent_tenant_reassignment();
+create trigger product_tier_prices_prevent_reassignment
+before update on public.product_tier_prices
+for each row execute function private.prevent_tenant_reassignment();
+create trigger orders_prevent_reassignment
+before update on public.orders
+for each row execute function private.prevent_tenant_reassignment();
+create trigger order_items_prevent_reassignment
+before update on public.order_items
+for each row execute function private.prevent_tenant_reassignment();
+create trigger assets_prevent_reassignment
+before update on public.assets
+for each row execute function private.prevent_tenant_reassignment();
+create trigger wallets_prevent_reassignment
+before update on public.wallets
+for each row execute function private.prevent_tenant_reassignment();
+create trigger wallet_transactions_prevent_reassignment
+before update on public.wallet_transactions
+for each row execute function private.prevent_tenant_reassignment();
+create trigger payout_requests_prevent_reassignment
+before update on public.payout_requests
+for each row execute function private.prevent_tenant_reassignment();
+create trigger audit_logs_prevent_reassignment
+before update on public.audit_logs
+for each row execute function private.prevent_tenant_reassignment();
+
+-- Membership identity is immutable; the final active owner cannot demote or delete themselves.
+create or replace function private.protect_tenant_membership()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $
+declare
+  v_tenant_id uuid;
+  v_user_id uuid;
+  v_old_was_owner boolean;
+  v_new_remains_owner boolean;
+begin
+  if tg_op = 'UPDATE' then
+    if new.tenant_id is distinct from old.tenant_id or new.user_id is distinct from old.user_id then
+      raise exception 'tenant membership identity is immutable'
+        using errcode = '23514';
+    end if;
+    v_tenant_id := old.tenant_id;
+    v_user_id := old.user_id;
+    v_old_was_owner := old.role = 'owner' and old.is_active;
+    v_new_remains_owner := new.role = 'owner' and new.is_active;
+  else
+    v_tenant_id := old.tenant_id;
+    v_user_id := old.user_id;
+    v_old_was_owner := old.role = 'owner' and old.is_active;
+    v_new_remains_owner := false;
+  end if;
+
+  if v_old_was_owner and not v_new_remains_owner and not exists (
+    select 1
+    from public.tenant_memberships tm
+    where tm.tenant_id = v_tenant_id
+      and tm.user_id <> v_user_id
+      and tm.role = 'owner'
+      and tm.is_active = true
+  ) then
+    raise exception 'a tenant must retain at least one active owner'
+      using errcode = '23514';
+  end if;
+
+  if tg_op = 'DELETE' then return old; end if;
+  return new;
+end;
+$;
+
+revoke all on function private.protect_tenant_membership() from public, anon, authenticated;
+create trigger tenant_memberships_protect_owner
+before update or delete on public.tenant_memberships
+for each row execute function private.protect_tenant_membership();
+
+-- Wallet ledger and audit trail are append-only. Corrections must be new reversal/audit rows.
+create or replace function private.reject_ledger_mutation()
+returns trigger
+language plpgsql
+set search_path = ''
+as $
+begin
+  raise exception 'this table is append-only; record a compensating entry instead'
+    using errcode = '55000';
+end;
+$;
+
+revoke all on function private.reject_ledger_mutation() from public, anon, authenticated;
+create trigger wallet_transactions_append_only
+before update or delete on public.wallet_transactions
+for each row execute function private.reject_ledger_mutation();
+create trigger audit_logs_append_only
+before update or delete on public.audit_logs
+for each row execute function private.reject_ledger_mutation();
+
+-- Correctly correlate payout policy checks to the outer payout row.
+drop policy if exists payouts_insert_self on public.payout_requests;
+create policy payouts_insert_self on public.payout_requests
+for insert to authenticated
+with check (
+  user_id = (select auth.uid())
+  and status = 'requested'
+  and private.is_tenant_member(payout_requests.tenant_id)
+  and exists (
+    select 1 from public.tenant_memberships tm
+    where tm.tenant_id = payout_requests.tenant_id
+      and tm.user_id = (select auth.uid())
+      and tm.role = 'reseller'
+      and tm.is_active = true
+  )
+  and exists (
+    select 1 from public.wallets w
+    where w.id = payout_requests.wallet_id
+      and w.tenant_id = payout_requests.tenant_id
+      and w.user_id = (select auth.uid())
+  )
+);
+
+-- Additional lookup indexes used by owner/reseller screens.
+create index order_items_tenant_order_idx on public.order_items(tenant_id, order_id);
+create index wallet_transactions_tenant_user_idx on public.wallet_transactions(tenant_id, user_id, created_at desc);
+create index payout_requests_tenant_user_idx on public.payout_requests(tenant_id, user_id, requested_at desc);
+
 commit;
