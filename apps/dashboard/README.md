@@ -22,7 +22,7 @@ cp .env.example .env.local
 Fill these values in `.env.local`:
 
 - `NEXT_PUBLIC_SUPABASE_URL`: existing Resellerku project URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Supabase publishable key (or legacy anon key)
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: Supabase publishable key (`sb_publishable_...`); the client also accepts legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `NEXT_PUBLIC_RESELLERKU_API_URL`: existing `resellerku-api` Worker URL
 - `NEXT_PUBLIC_DASHBOARD_PREVIEW=false`: set true only to show clearly labeled sample order cards when there are no real orders
 
