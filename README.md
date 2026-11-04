@@ -43,3 +43,32 @@ The owner must confirm actual settlement before setting payment_status = verifie
 
 ## Continuous validation
 The worker-ci GitHub Actions workflow runs TypeScript validation on relevant pushes and pull requests.
+
+
+## Supabase Storage layout
+
+All four buckets are private. Do not expose their object URLs as public URLs.
+
+| Bucket | Purpose | Limit | Access |
+| --- | --- | ---: | --- |
+| \`receipts\` | Payment receipt evidence | 6 MB | Trusted Worker only |
+| \`product-images\` | Catalog product images | 8 MB | Active tenant members read; tenant owner writes |
+| \`marketing-assets\` | Campaign images, video, PDF and brand media | 25 MB | Owner manages; members read brand media and published assets |
+| \`avatars\` | User profile pictures | 2 MB | User manages own avatar; tenant owner may view member avatars |
+
+Object path conventions:
+- Product image: \`{tenant_id}/products/{product_id}/{filename}\`
+- Marketing asset: \`{tenant_id}/assets/{asset_id}/{filename}\`
+- Brand media/logo: \`{tenant_id}/brand/{filename}\`
+- Avatar: \`{user_id}/{filename}\`
+- Receipt: \`{tenant_id}/{order_id}/{filename}\`
+
+Upload a marketing asset by first creating its \`public.assets\` row with \`storage_bucket = 'marketing-assets'\` and its exact \`storage_path\`; upload the file to that path; then set its status to \`published\` only when it is ready for resellers. Resellers can read only published asset files.
+
+Apply the Storage SQL files in this order when recreating the project:
+1. \`supabase/receipts_storage.sql\`
+2. \`supabase/media_buckets.sql\`
+3. \`supabase/storage_policies.sql\`
+4. \`supabase/storage_product_policy_fix.sql\`
+
+\`supabase/storage_policies.sql\` and its qualification fix define tenant-scoped Storage RLS policies. Keep \`receipts\` without client-facing policies; the receipt Worker accesses it with the service-role key.
