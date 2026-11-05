@@ -543,8 +543,16 @@ create or replace function public.create_payout_request(
 returns uuid
 language plpgsql security definer set search_path=''
 as $$
-declare v_wallet public.wallets%rowtype; v_payout_id uuid;
+declare v_wallet public.wallets%rowtype; v_payout_id uuid; v_existing public.wallet_transactions%rowtype;
 begin
+  select * into v_existing from public.wallet_transactions
+  where tenant_id=p_tenant_id and idempotency_key=p_idempotency_key||':available' limit 1;
+  if found then
+    if v_existing.user_id<>p_user_id or v_existing.amount<>p_amount or v_existing.payout_request_id is null then
+      raise exception 'payout_idempotency_key_conflict';
+    end if;
+    return v_existing.payout_request_id;
+  end if;
   if p_amount is null or p_amount<=0 or p_amount<>round(p_amount,2)
      or length(trim(coalesce(p_idempotency_key,'')))<12 then
     raise exception 'invalid_payout_request' using errcode='22023';
