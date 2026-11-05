@@ -260,8 +260,11 @@ begin
       where wt.tenant_id = p_tenant_id
         and wt.idempotency_key = v_idempotency_key;
 
-      if found
-         and v_existing_transaction.transaction_type = 'payout_hold'
+      if not found then
+        raise;
+      end if;
+
+      if v_existing_transaction.transaction_type = 'payout_hold'
          and v_existing_transaction.status = 'posted'
          and v_existing_transaction.wallet_id = p_wallet_id
          and v_existing_transaction.user_id = v_user_id
@@ -284,11 +287,7 @@ begin
         end if;
       end if;
 
-      if found then
-        raise exception 'idempotency_key_conflict' using errcode = 'P0001';
-      end if;
-
-      raise;
+      raise exception 'idempotency_key_conflict' using errcode = 'P0001';
   end;
 
   return v_payout_id;
