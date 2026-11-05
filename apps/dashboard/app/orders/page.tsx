@@ -10,7 +10,7 @@ type OrderItem = {
   line_total: number | string; tier_snapshot: string | null;
 };
 type OrderRow = {
-  id: string; tenant_id: string; order_number: string; reseller_id: string;
+  id: string; tenant_id: string; order_number: string; reseller_id: string | null;
   status: string; payment_status: string; fulfillment_type: string;
   recipient_name: string; recipient_phone: string | null;
   subtotal: number | string; shipping_cost: number | string;
@@ -83,29 +83,56 @@ export default function OrdersPage() {
         return;
       }
 
-      const resellerIds = [...new Set(rows.map(row => row.reseller_id as string))];
+      const resellerIds = [...new Set(
+        rows.map(row => row.reseller_id as string | null).filter((id): id is string => Boolean(id))
+      )];
       const orderIds = rows.map(row => row.id as string);
-      const [{ data: profiles, error: profileError }, { data: itemRows, error: itemError }, { data: membershipsByUser, error: tierError }] = await Promise.all([
-        supabase.from("users").select("id,full_name").in("id", resellerIds),
-        supabase.from("order_items").select("id,order_id,product_name_snapshot,sku_snapshot,quantity,unit_price,commission_amount,line_total,tier_snapshot").in("order_id", orderIds),
-        supabase.from("tenant_memberships").select("user_id,reseller_tier").eq("tenant_id", tenantId).in("user_id", resellerIds),
+      const [profilesResult, itemsResult, membershipsResult] = await Promise.all([
+        resellerIds.length
+          ? supabase.from("users").select("id,full_name").in("id", resellerIds)
+          : Promise.resolve({ data: [], error: null }),
+        supabase.from("order_items")
+          .select("id,order_id,product_name_snapshot,sku_snapshot,quantity,unit_price,line_total,tier_snapshot")
+          .in("order_id", orderIds),
+        resellerIds.length
+          ? supabase.from("tenant_memberships").select("user_id,reseller_tier")
+              .eq("tenant_id", tenantId).in("user_id", resellerIds)
+          : Promise.resolve({ data: [], error: null }),
       ]);
+      const { data: profiles, error: profileError } = profilesResult;
+      const { data: itemRows, error: itemError } = itemsResult;
+      const { data: membershipsByUser, error: tierError } = membershipsResult;
       if (profileError) throw profileError;
       if (itemError) throw itemError;
       if (tierError) throw tierError;
 
+      const itemIds = (itemRows ?? []).map(item => item.id as string);
+      const commissionResult = itemIds.length
+        ? await supabase.from("order_item_commissions")
+            .select("order_item_id,commission_per_unit,commission_total")
+            .eq("tenant_id", tenantId).in("order_item_id", itemIds)
+        : { data: [], error: null };
+      if (commissionResult.error) throw commissionResult.error;
+
       const profileMap = new Map((profiles ?? []).map(profile => [profile.id as string, profile.full_name as string | null]));
       const tierMap = new Map((membershipsByUser ?? []).map(member => [member.user_id as string, member.reseller_tier as string]));
+      const commissionMap = new Map((commissionResult.data ?? []).map(row => [
+        row.order_item_id as string,
+        row.commission_per_unit as number | string,
+      ]));
       const itemMap = new Map<string, OrderItem[]>();
-      for (const item of (itemRows ?? []) as OrderItem[] & { order_id: string }[]) {
+      for (const item of (itemRows ?? []) as Omit<OrderItem, "commission_amount">[] & { order_id: string }[]) {
         const list = itemMap.get(item.order_id) ?? [];
-        list.push(item);
+        list.push({
+          ...item,
+          commission_amount: commissionMap.get(item.id) ?? 0,
+        });
         itemMap.set(item.order_id, list);
       }
       const mapped: OrderRow[] = rows.map(row => ({
         ...row,
-        reseller_name: profileMap.get(row.reseller_id as string) ?? "Reseller",
-        reseller_tier: tierMap.get(row.reseller_id as string) ?? "—",
+        reseller_name: row.reseller_id ? (profileMap.get(row.reseller_id as string) ?? "Reseller") : "Penjualan Langsung",
+        reseller_tier: row.reseller_id ? (tierMap.get(row.reseller_id as string) ?? "—") : "Bukan order reseller",
         items: itemMap.get(row.id as string) ?? [],
       })) as OrderRow[];
       setOrders(mapped);
