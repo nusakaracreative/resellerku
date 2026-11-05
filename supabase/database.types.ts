@@ -677,6 +677,74 @@ export type Database = {
           },
         ]
       }
+      order_item_commissions: {
+        Row: {
+          commission_per_unit: number
+          commission_total: number
+          created_at: string
+          currency_code: string
+          id: string
+          order_id: string
+          order_item_id: string
+          reseller_id: string
+          tenant_id: string
+          tier_snapshot: Database["public"]["Enums"]["reseller_tier"] | null
+        }
+        Insert: {
+          commission_per_unit: number
+          commission_total: number
+          created_at?: string
+          currency_code?: string
+          id?: string
+          order_id: string
+          order_item_id: string
+          reseller_id: string
+          tenant_id: string
+          tier_snapshot?: Database["public"]["Enums"]["reseller_tier"] | null
+        }
+        Update: {
+          commission_per_unit?: number
+          commission_total?: number
+          created_at?: string
+          currency_code?: string
+          id?: string
+          order_id?: string
+          order_item_id?: string
+          reseller_id?: string
+          tenant_id?: string
+          tier_snapshot?: Database["public"]["Enums"]["reseller_tier"] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_item_commissions_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_item_commissions_tenant_id_order_id_fkey"
+            columns: ["tenant_id", "order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "order_item_commissions_tenant_id_order_item_id_fkey"
+            columns: ["tenant_id", "order_item_id"]
+            isOneToOne: true
+            referencedRelation: "order_items"
+            referencedColumns: ["tenant_id", "id"]
+          },
+          {
+            foreignKeyName: "order_item_commissions_tenant_id_reseller_id_fkey"
+            columns: ["tenant_id", "reseller_id"]
+            isOneToOne: false
+            referencedRelation: "tenant_memberships"
+            referencedColumns: ["tenant_id", "user_id"]
+          },
+        ]
+      }
       order_items: {
         Row: {
           commission_amount: number
