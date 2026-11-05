@@ -477,7 +477,6 @@ begin
   return next;
 end;
 $function$
-$function$;
 
 -- Backend-only: release commissions only after trusted delivery + 48h and no active return/dispute.
 create or replace function public.release_due_commissions(p_tenant_id uuid default null)
@@ -515,8 +514,8 @@ begin
     where w.tenant_id=r.tenant_id and w.user_id=r.reseller_id for update;
     if v_wallet_id is null then raise exception 'wallet_missing_for_commission:%',r.id; end if;
     v_key:='commission-release:'||r.id::text;
-    if exists(select 1 from public.wallet_transactions where tenant_id=r.tenant_id and idempotency_key=v_key) then
-      if (select count(*) from public.wallet_transactions where tenant_id=r.tenant_id and idempotency_key=v_key) <> 2 then
+    if exists(select 1 from public.wallet_transactions where tenant_id=r.tenant_id and idempotency_key like v_key||':%') then
+      if (select count(*) from public.wallet_transactions where tenant_id=r.tenant_id and idempotency_key like v_key||':%') <> 2 then
         raise exception 'partial_release_ledger_event:%',r.id;
       end if;
     else
@@ -613,7 +612,11 @@ begin
   select * into rr from public.return_requests
   where id=p_return_request_id and tenant_id=c.tenant_id and order_id=c.order_id for update;
   if not found or rr.status not in ('approved','resolved') then raise exception 'return_not_approved'; end if;
-  if exists(select 1 from public.wallet_transactions where tenant_id=c.tenant_id and idempotency_key=p_idempotency_key) then
+  if exists(select 1 from public.wallet_transactions where tenant_id=c.tenant_id and idempotency_key like p_idempotency_key||':%') then
+    if (select coalesce(sum(amount),0) from public.wallet_transactions where tenant_id=c.tenant_id and idempotency_key like p_idempotency_key||':%') <>
+       (select coalesce(sum(amount),0) from public.wallet_transactions where tenant_id=c.tenant_id and order_item_commission_id=c.id and return_request_id=p_return_request_id and idempotency_key like p_idempotency_key||':%') then
+      raise exception 'incomplete_reversal_ledger_event';
+    end if;
     return 0;
   end if;
   if p_returned_quantity>(select coalesce(sum(ri.quantity),0) from public.return_items ri
