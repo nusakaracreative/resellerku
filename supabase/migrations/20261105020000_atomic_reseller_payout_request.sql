@@ -97,7 +97,7 @@ begin
        or v_existing_transaction.wallet_id <> p_wallet_id
        or v_existing_transaction.user_id <> v_user_id
        or v_existing_transaction.amount <> p_amount then
-      raise exception 'idempotency_key_conflict' using errcode = '23505';
+      raise exception 'idempotency_key_conflict' using errcode = 'P0001';
     end if;
 
     select pr.id
@@ -113,7 +113,7 @@ begin
       and pr.bank_account_name = pg_catalog.btrim(p_bank_account_name);
 
     if not found then
-      raise exception 'idempotency_key_conflict' using errcode = '23505';
+      raise exception 'idempotency_key_conflict' using errcode = 'P0001';
     end if;
 
     return v_existing_payout_id;
@@ -150,7 +150,7 @@ begin
          or v_existing_transaction.wallet_id <> p_wallet_id
          or v_existing_transaction.user_id <> v_user_id
          or v_existing_transaction.amount <> p_amount then
-        raise exception 'idempotency_key_conflict' using errcode = '23505';
+        raise exception 'idempotency_key_conflict' using errcode = 'P0001';
       end if;
 
       select pr.id
@@ -166,7 +166,7 @@ begin
         and pr.bank_account_name = pg_catalog.btrim(p_bank_account_name);
 
       if not found then
-        raise exception 'idempotency_key_conflict' using errcode = '23505';
+        raise exception 'idempotency_key_conflict' using errcode = 'P0001';
       end if;
 
       return v_existing_payout_id;
@@ -246,8 +246,7 @@ begin
       v_payout_id,
       pg_catalog.jsonb_build_object(
         'wallet_id', p_wallet_id,
-        'amount', p_amount,
-        'currency', 'tenant_currency'
+        'amount', p_amount
       )
     );
 
@@ -286,7 +285,7 @@ begin
       end if;
 
       if found then
-        raise exception 'idempotency_key_conflict' using errcode = '23505';
+        raise exception 'idempotency_key_conflict' using errcode = 'P0001';
       end if;
 
       raise;
