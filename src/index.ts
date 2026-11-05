@@ -18,7 +18,7 @@ interface Body {
   mime_type?: string;
 }
 interface Order {
-  id: string; tenant_id: string; reseller_id: string; order_number: string;
+  id: string; tenant_id: string; reseller_id: string | null; order_number: string;
   status: string; payment_status: string; total_amount: string | number;
   receipt_object_path: string | null; receipt_ocr_status: string; notes: string | null;
 }
