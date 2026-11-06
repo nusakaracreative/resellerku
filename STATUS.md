@@ -2,7 +2,7 @@
 
 Diperbarui: 6 November 2026
 Branch pekerjaan: `feat/stage1-commission-wallet`
-Tahap: Tahap 1 — Commission and Wallet lifecycle (Draft PR untuk review; belum siap rilis).
+Tahap: Tahap 1 — Commission and Wallet lifecycle (Draft PR; schema dan SQL contract test tersedia, behavioral QA belum lengkap).
 
 ## Status bukti
 
@@ -11,11 +11,11 @@ Tahap: Tahap 1 — Commission and Wallet lifecycle (Draft PR untuk review; belum
 - `checkout_storefront_cart` diperbarui agar snapshot komisi baru dibuat berstatus pending dan dicatat ke pending ledger serta `wallets.pending_balance` dalam transaksi checkout yang sama.
 - Constraint ledger menjaga `entry_direction` dan `balance_bucket` selalu NULL bersama-sama untuk baris legacy atau terisi bersama-sama untuk baris baru.
 - RPC draft: `release_due_commissions`, `create_payout_request`, `approve_payout_request`, dan `reverse_released_commission`.
-- RPC baru dicabut dari PUBLIC/anon/authenticated dan diberikan ke service_role. Worker tetap wajib memvalidasi JWT, tenant/object authorization, dan human reviewer approval.
+- RPC baru dicabut dari PUBLIC/anon/authenticated dan diberikan ke service_role. Worker tetap wajib memvalidasi JWT, tenant/object authorization, dan human reviewer approval.\n- SQL test file `supabase/tests/database/stage1_finance_test.sql` berisi contract checks untuk kolom/constraint/RPC grants serta empat negative cross-tenant direct-RPC attempts oleh role `authenticated`.
 
 ### [ASUMSI / BELUM ADA]
 - Migration belum dijalankan di Supabase Staging maupun Production.
-- Belum ada bukti SQL parse/apply, automated tests, cross-tenant RLS tests, concurrency tests, property/reconciliation tests, atau Worker integration tests.
+- SQL test script sudah ditulis dan di-commit, tetapi BELUM dijalankan. Belum ada bukti SQL parse/apply atau hasil pgTAP.\n- Test file saat ini menguji schema/RPC contract dan batas privilege direct RPC; belum mensimulasikan checkout pending, elapsed hold 48 jam, release ke available, payout locked/paid, atau retur parsial/penuh dengan fixture database.\n- Belum ada cross-tenant RLS tests untuk akses tabel langsung, concurrency tests, property/reconciliation tests, atau Worker integration tests.
 - Kesesuaian seluruh FK/status shipment, return, dispute, payout dengan database aktif belum dibuktikan melalui query.
 - Belum ada bukti bahwa Worker sudah memanggil RPC baru atau menerapkan reviewer authorization.
 - Belum ada approval manusia untuk deploy modul uang.
@@ -39,10 +39,10 @@ Tahap: Tahap 1 — Commission and Wallet lifecycle (Draft PR untuk review; belum
 
 ## Lingkup perubahan branch
 - `supabase/migrations/20261106020000_stage1_finance_engine.sql`
-- `STATUS.md`
+- `supabase/tests/database/stage1_finance_test.sql`\n- `STATUS.md`
 
 ## Instruksi keselamatan
 Jangan merge atau apply migration ini ke database aktif sebelum review teknis, Staging tests, adversarial review, security/RLS review, dan persetujuan Owner. Tidak ada operasi Supabase Staging/Production yang dilakukan dalam pekerjaan ini.
 
 ## Log perubahan
-- 6 Nov 2026: Draft Stage 1 finance engine dibuat pada branch `feat/stage1-commission-wallet`; menunggu review dan pengujian.
+- 6 Nov 2026: Draft Stage 1 finance engine dibuat pada branch `feat/stage1-commission-wallet`; menunggu review dan pengujian.\n- 6 Nov 2026: SQL contract test dan negative cross-tenant direct-RPC tests ditambahkan; behavioral QA masih memerlukan fixture dan test tambahan.
