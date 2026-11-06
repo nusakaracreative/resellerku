@@ -16,7 +16,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select extensions.plan(20);
+select extensions.plan(33);
 
 -- Schema contract.
 select extensions.ok(
@@ -55,14 +55,23 @@ select extensions.ok(
       and column_name='payout_request_id')
   and exists(select 1 from information_schema.columns
     where table_schema='public' and table_name='wallet_transactions'
-      and column_name='return_request_id'),
-  'wallet_transactions has Stage 1 ledger metadata columns'
+      and column_name='return_request_id')
+  and exists(select 1 from information_schema.columns
+    where table_schema='public' and table_name='wallet_transactions'
+      and column_name='entry_version'),
+  'wallet_transactions has Stage 1 ledger metadata and entry_version'
 );
 select extensions.ok(
   exists(select 1 from pg_constraint
     where conrelid='public.wallet_transactions'::regclass
-      and conname='wallet_transactions_direction_bucket_pair_check'),
-  'legacy-compatible ledger NULL-pair CHECK exists'
+      and conname='wallet_transactions_entry_version_check'),
+  'entry_version enforces legacy v1 NULLs and directional v2 rows'
+);
+select extensions.ok(
+  exists(select 1 from pg_trigger
+    where tgrelid='public.wallet_transactions'::regclass
+      and tgname='wallet_transactions_append_only_guard' and not tgisinternal),
+  'wallet_transactions append-only trigger exists'
 );
 
 -- RPC existence and privilege contract.
@@ -74,6 +83,12 @@ select extensions.ok(to_regprocedure('public.approve_payout_request(uuid,text)')
   'approve_payout_request(uuid,text) exists');
 select extensions.ok(to_regprocedure('public.reverse_released_commission(uuid,uuid,integer,text)') is not null,
   'reverse_released_commission(...) exists');
+select extensions.ok(to_regprocedure('public.release_commission_to_available(uuid)') is not null,
+  'release_commission_to_available(uuid) exists');
+select extensions.ok(to_regprocedure('public.unlock_failed_payout(uuid,text,text)') is not null,
+  'unlock_failed_payout(...) exists');
+select extensions.ok(to_regprocedure('public.reverse_pending_commission(uuid,text)') is not null,
+  'reverse_pending_commission(...) exists');
 
 select extensions.ok(not has_function_privilege('authenticated','public.release_due_commissions(uuid)','EXECUTE'),
   'authenticated cannot execute release_due_commissions');
@@ -83,6 +98,12 @@ select extensions.ok(not has_function_privilege('authenticated','public.approve_
   'authenticated cannot execute approve_payout_request');
 select extensions.ok(not has_function_privilege('authenticated','public.reverse_released_commission(uuid,uuid,integer,text)','EXECUTE'),
   'authenticated cannot execute reverse_released_commission');
+select extensions.ok(not has_function_privilege('authenticated','public.release_commission_to_available(uuid)','EXECUTE'),
+  'authenticated cannot execute release_commission_to_available');
+select extensions.ok(not has_function_privilege('authenticated','public.unlock_failed_payout(uuid,text,text)','EXECUTE'),
+  'authenticated cannot execute unlock_failed_payout');
+select extensions.ok(not has_function_privilege('authenticated','public.reverse_pending_commission(uuid,text)','EXECUTE'),
+  'authenticated cannot execute reverse_pending_commission');
 
 select extensions.ok(has_function_privilege('service_role','public.release_due_commissions(uuid)','EXECUTE'),
   'service_role can execute release_due_commissions');
@@ -92,6 +113,12 @@ select extensions.ok(has_function_privilege('service_role','public.approve_payou
   'service_role can execute approve_payout_request');
 select extensions.ok(has_function_privilege('service_role','public.reverse_released_commission(uuid,uuid,integer,text)','EXECUTE'),
   'service_role can execute reverse_released_commission');
+select extensions.ok(has_function_privilege('service_role','public.release_commission_to_available(uuid)','EXECUTE'),
+  'service_role can execute release_commission_to_available');
+select extensions.ok(has_function_privilege('service_role','public.unlock_failed_payout(uuid,text,text)','EXECUTE'),
+  'service_role can execute unlock_failed_payout');
+select extensions.ok(has_function_privilege('service_role','public.reverse_pending_commission(uuid,text)','EXECUTE'),
+  'service_role can execute reverse_pending_commission');
 
 -- Adversarial cross-tenant attempt:
 -- Tenant B's authenticated user supplies Tenant A object IDs/tenant context.
@@ -122,12 +149,29 @@ select extensions.throws_ok(
   'Tenant B user cannot approve a Tenant A payout'
 );
 select extensions.throws_ok(
-  $$select public.reverse_released_commission(
+  $select public.reverse_released_commission(
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,
-    1,'cross-tenant-reversal-key-0001')$$,
+    1,'cross-tenant-reversal-key-0001')$,
   '42501', null,
   'Tenant B user cannot reverse a Tenant A commission'
+);
+select extensions.throws_ok(
+  $select public.release_commission_to_available('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid)$,
+  '42501', null,
+  'Tenant B user cannot call commission release helper'
+);
+select extensions.throws_ok(
+  $select public.unlock_failed_payout(
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,'FAIL-REF','cross-tenant-unlock-key-0001')$,
+  '42501', null,
+  'Tenant B user cannot unlock a Tenant A payout'
+);
+select extensions.throws_ok(
+  $select public.reverse_pending_commission(
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,'cross-tenant-pending-key-0001')$,
+  '42501', null,
+  'Tenant B user cannot reverse a Tenant A pending commission'
 );
 
 reset role;
