@@ -30,19 +30,27 @@ alter table public.order_item_commissions
 alter table public.wallet_transactions
   add column if not exists entry_direction text,
   add column if not exists balance_bucket text,
+  add column if not exists entry_version smallint not null default 2,
   add column if not exists related_transaction_id uuid,
   add column if not exists order_item_commission_id uuid,
   add column if not exists payout_request_id uuid,
   add column if not exists return_request_id uuid;
+
+-- Rows present before this migration are immutable legacy ledger records.
+update public.wallet_transactions
+set entry_version = 1, entry_direction = null, balance_bucket = null;
 
 alter table public.wallet_transactions
   add constraint wallet_transactions_direction_check
     check (entry_direction is null or entry_direction in ('credit','debit')),
   add constraint wallet_transactions_bucket_check
     check (balance_bucket is null or balance_bucket in ('pending','available','locked','outstanding_adjustment')),
-  add constraint wallet_transactions_direction_bucket_pair_check
-    check ((entry_direction is null and balance_bucket is null) or
-           (entry_direction is not null and balance_bucket is not null)),
+  add constraint wallet_transactions_entry_version_check
+    check (
+      (entry_version = 1 and entry_direction is null and balance_bucket is null)
+      or
+      (entry_version = 2 and entry_direction is not null and balance_bucket is not null)
+    ),
   add constraint wallet_transactions_related_transaction_fk
     foreign key (related_transaction_id) references public.wallet_transactions(id) on delete restrict,
   add constraint wallet_transactions_commission_tenant_fk
@@ -54,18 +62,58 @@ alter table public.wallet_transactions
     foreign key (tenant_id,return_request_id)
     references public.return_requests(tenant_id,id) on delete restrict;
 
+-- Bridge the pre-Stage-1 wallet balances into the versioned ledger.
+-- One opening entry is emitted for each non-zero balance bucket.
+insert into public.wallet_transactions(
+  tenant_id,wallet_id,user_id,transaction_type,status,amount,description,idempotency_key,
+  entry_direction,balance_bucket,entry_version,posted_at
+)
+select w.tenant_id,w.id,w.user_id,'adjustment','posted',b.amount,
+       'Opening balance migration v2 ('||b.bucket||')',
+       'opening-balance:v2:'||w.id::text||':'||b.bucket,
+       'credit',b.bucket,2,now()
+from public.wallets w
+cross join lateral (values
+  ('pending',w.pending_balance),
+  ('available',w.available_balance),
+  ('locked',w.locked_balance),
+  ('outstanding_adjustment',w.outstanding_adjustment_balance)
+) as b(bucket,amount)
+where b.amount > 0
+on conflict (tenant_id,idempotency_key) do nothing;
+
 create unique index if not exists payout_requests_tenant_transfer_reference_uidx
   on public.payout_requests(tenant_id,transfer_reference)
   where transfer_reference is not null;
 
 comment on column public.wallet_transactions.entry_direction is
-  'NULL only for legacy rows; new Stage 1 entries use credit/debit with positive amount.';
+  'NULL only for entry_version=1 legacy rows; version 2 rows use credit/debit.';
+comment on column public.wallet_transactions.entry_version is
+  '1=legacy historical ledger; 2=directional bucket ledger.';
 comment on column public.wallet_transactions.balance_bucket is
-  'NULL only for legacy rows; identifies the wallet balance bucket affected.';
+  'NULL only for entry_version=1 legacy rows; version 2 identifies the affected balance bucket.';
 comment on column public.wallets.outstanding_adjustment_balance is
   'Outstanding reseller adjustment debt; blocks payout until settled.';
 
--- Existing ledger rows remain NULL/NULL. New checkout rows always populate both fields.
+
+-- Database-enforced append-only ledger. Corrections must be compensating INSERTs.
+create or replace function public.reject_wallet_transaction_mutation()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $
+begin
+  raise exception 'wallet_transactions_append_only' using errcode = '55000';
+end;
+$;
+revoke all on function public.reject_wallet_transaction_mutation() from public,anon,authenticated;
+drop trigger if exists wallet_transactions_append_only_guard on public.wallet_transactions;
+create trigger wallet_transactions_append_only_guard
+before update or delete on public.wallet_transactions
+for each row execute function public.reject_wallet_transaction_mutation();
+
+-- Legacy rows are version 1 (NULL direction/bucket); Stage 1 rows are version 2.
 create or replace function public.checkout_storefront_cart(
   p_public_slug text,p_cart_id uuid,p_address_id uuid,p_shipping_rate_id uuid,
   p_referral_code text default null,p_coupon_code text default null,p_idempotency_key text default null
@@ -390,6 +438,23 @@ begin
     if v_reseller_id is not null then
       v_commission_total := (v_item.value->>'commission_amount')::numeric
                             * (v_item.value->>'quantity')::integer;
+      -- Lock/create the wallet before creating the commission row (wallet -> commission).
+      select w.id into v_wallet_id
+      from public.wallets w
+      where w.tenant_id=v_tenant_id and w.user_id=v_reseller_id;
+      if v_wallet_id is null then
+        insert into public.wallets(tenant_id,user_id)
+        values(v_tenant_id,v_reseller_id)
+        on conflict(tenant_id,user_id) do nothing;
+        select w.id into v_wallet_id from public.wallets w
+        where w.tenant_id=v_tenant_id and w.user_id=v_reseller_id;
+      end if;
+      if v_wallet_id is null then raise exception 'reseller_wallet_unavailable' using errcode='P0001'; end if;
+      perform 1 from public.wallets w
+      where w.id=v_wallet_id and w.tenant_id=v_tenant_id and w.user_id=v_reseller_id
+      for update;
+      if not found then raise exception 'reseller_wallet_unavailable' using errcode='P0001'; end if;
+
       insert into public.order_item_commissions(
         tenant_id,order_id,order_item_id,reseller_id,commission_per_unit,commission_total,
         tier_snapshot,commission_status,hold_period_hours_snapshot
@@ -399,27 +464,14 @@ begin
         v_tier,'pending',48
       ) returning id into v_commission_id;
 
-      select w.id into v_wallet_id
-      from public.wallets w
-      where w.tenant_id=v_tenant_id and w.user_id=v_reseller_id
-      for update;
-      if v_wallet_id is null then
-        insert into public.wallets(tenant_id,user_id)
-        values(v_tenant_id,v_reseller_id)
-        on conflict(tenant_id,user_id) do nothing;
-        select w.id into v_wallet_id from public.wallets w
-        where w.tenant_id=v_tenant_id and w.user_id=v_reseller_id for update;
-      end if;
-      if v_wallet_id is null then raise exception 'reseller_wallet_unavailable' using errcode='P0001'; end if;
-
       if v_commission_total > 0 then
         insert into public.wallet_transactions(
           tenant_id,wallet_id,user_id,order_id,transaction_type,status,amount,
-          description,idempotency_key,entry_direction,balance_bucket,order_item_commission_id,posted_at
+          description,idempotency_key,entry_direction,balance_bucket,entry_version,order_item_commission_id,posted_at
         ) values (
           v_tenant_id,v_wallet_id,v_reseller_id,v_order_id,'commission_pending','posted',
           v_commission_total,'Pending commission from checkout',
-          'commission-pending:'||v_commission_id::text,'credit','pending',v_commission_id,v_now
+          'commission-pending:'||v_commission_id::text,'credit','pending',2,v_commission_id,v_now
         );
         update public.wallets
         set pending_balance=pending_balance+v_commission_total,
@@ -565,10 +617,10 @@ begin
   insert into public.payout_requests(tenant_id,user_id,wallet_id,amount,bank_name,bank_account_number,bank_account_name,status)
   values(p_tenant_id,p_user_id,v_wallet.id,p_amount,p_bank_name,p_bank_account_number,p_bank_account_name,'requested')
   returning id into v_payout_id;
-  insert into public.wallet_transactions(tenant_id,wallet_id,user_id,transaction_type,status,amount,description,idempotency_key,entry_direction,balance_bucket,payout_request_id,posted_at)
+  insert into public.wallet_transactions(tenant_id,wallet_id,user_id,transaction_type,status,amount,description,idempotency_key,entry_direction,balance_bucket,entry_version,payout_request_id,posted_at)
   values
-  (p_tenant_id,v_wallet.id,p_user_id,'payout_hold','posted',p_amount,'Payout funds locked',p_idempotency_key||':available','debit','available',v_payout_id,now()),
-  (p_tenant_id,v_wallet.id,p_user_id,'payout_hold','posted',p_amount,'Payout funds locked',p_idempotency_key||':locked','credit','locked',v_payout_id,now());
+  (p_tenant_id,v_wallet.id,p_user_id,'payout_hold','posted',p_amount,'Payout funds locked',p_idempotency_key||':available','debit','available',2,v_payout_id,now()),
+  (p_tenant_id,v_wallet.id,p_user_id,'payout_hold','posted',p_amount,'Payout funds locked',p_idempotency_key||':locked','credit','locked',2,v_payout_id,now());
   update public.wallets set available_balance=available_balance-p_amount,
     locked_balance=locked_balance+p_amount,updated_at=now() where id=v_wallet.id;
   return v_payout_id;
@@ -665,6 +717,295 @@ revoke all on function public.reverse_released_commission(uuid,uuid,integer,text
 grant execute on function public.release_due_commissions(uuid) to service_role;
 grant execute on function public.create_payout_request(uuid,uuid,numeric,text,text,text,text) to service_role;
 grant execute on function public.approve_payout_request(uuid,text) to service_role;
+grant execute on function public.reverse_released_commission(uuid,uuid,integer,text) to service_role;
+
+
+-- Release one commission. Lock order is wallet first, then commission; all state is revalidated after locks.
+create or replace function public.release_commission_to_available(p_commission_id uuid)
+returns numeric
+language plpgsql security definer set search_path=''
+as $
+declare
+  v_tenant_id uuid; v_reseller_id uuid; v_wallet public.wallets%rowtype;
+  c public.order_item_commissions%rowtype; v_due_at timestamptz;
+  v_debt_offset numeric(14,2); v_available_credit numeric(14,2);
+  v_expected_rows integer; v_existing_rows integer;
+begin
+  select tenant_id,reseller_id into v_tenant_id,v_reseller_id
+  from public.order_item_commissions where id=p_commission_id;
+  if not found then raise exception 'commission_not_found'; end if;
+
+  select * into v_wallet from public.wallets
+  where tenant_id=v_tenant_id and user_id=v_reseller_id for update;
+  if not found then raise exception 'wallet_missing_for_commission'; end if;
+
+  select * into c from public.order_item_commissions
+  where id=p_commission_id and tenant_id=v_tenant_id and reseller_id=v_reseller_id
+  for update;
+  if not found then raise exception 'commission_changed_during_release'; end if;
+  if c.commission_status <> 'pending' then
+    if c.commission_status='available' or c.commission_status in ('partially_reversed','reversed') then return 0; end if;
+    raise exception 'commission_not_pending';
+  end if;
+
+  select max(sh.delivered_at) + make_interval(hours=>coalesce(c.hold_period_hours_snapshot,48))
+  into v_due_at
+  from public.shipments sh
+  where sh.tenant_id=c.tenant_id and sh.order_id=c.order_id and sh.delivered_at is not null;
+  if v_due_at is null or v_due_at>now() then raise exception 'commission_hold_not_elapsed'; end if;
+  if exists(select 1 from public.return_requests rr where rr.tenant_id=c.tenant_id and rr.order_id=c.order_id
+    and rr.status in ('requested','under_review','approved','awaiting_return','return_received'))
+    or exists(select 1 from public.dispute_cases dc where dc.tenant_id=c.tenant_id and dc.order_id=c.order_id
+    and dc.status not in ('resolved','closed','rejected')) then
+    raise exception 'commission_blocked_by_return_or_dispute';
+  end if;
+  if c.commission_total<=0 then
+    update public.order_item_commissions set commission_status='available',released_at=now()
+    where id=c.id and tenant_id=c.tenant_id;
+    return 0;
+  end if;
+  if v_wallet.pending_balance<c.commission_total then raise exception 'pending_balance_mismatch'; end if;
+
+  v_debt_offset:=least(v_wallet.outstanding_adjustment_balance,c.commission_total);
+  v_available_credit:=c.commission_total-v_debt_offset;
+  v_expected_rows:=1 + case when v_debt_offset>0 then 1 else 0 end
+                     + case when v_available_credit>0 then 1 else 0 end;
+  select count(*) into v_existing_rows from public.wallet_transactions
+  where tenant_id=c.tenant_id and idempotency_key like 'commission-release:'||c.id::text||':%';
+  if v_existing_rows>0 then
+    if v_existing_rows<>v_expected_rows then raise exception 'partial_release_ledger_event'; end if;
+    update public.order_item_commissions set commission_status='available',released_at=coalesce(released_at,now())
+    where id=c.id and tenant_id=c.tenant_id and commission_status='pending';
+    return 0;
+  end if;
+
+  insert into public.wallet_transactions(tenant_id,wallet_id,user_id,order_id,transaction_type,status,amount,description,idempotency_key,entry_direction,balance_bucket,entry_version,order_item_commission_id,posted_at)
+  values(c.tenant_id,v_wallet.id,c.reseller_id,c.order_id,'commission_pending','posted',c.commission_total,
+    'Release pending commission','commission-release:'||c.id||':pending','debit','pending',2,c.id,now());
+
+  if v_debt_offset>0 then
+    insert into public.wallet_transactions(tenant_id,wallet_id,user_id,order_id,transaction_type,status,amount,description,idempotency_key,entry_direction,balance_bucket,entry_version,order_item_commission_id,posted_at)
+    values(c.tenant_id,v_wallet.id,c.reseller_id,c.order_id,'adjustment','posted',v_debt_offset,
+      'Automatic outstanding adjustment repayment','commission-release:'||c.id||':debt','debit','outstanding_adjustment',2,c.id,now());
+  end if;
+  if v_available_credit>0 then
+    insert into public.wallet_transactions(tenant_id,wallet_id,user_id,order_id,transaction_type,status,amount,description,idempotency_key,entry_direction,balance_bucket,entry_version,order_item_commission_id,posted_at)
+    values(c.tenant_id,v_wallet.id,c.reseller_id,c.order_id,'commission_available','posted',v_available_credit,
+      'Commission became available after debt netting','commission-release:'||c.id||':available','credit','available',2,c.id,now());
+  end if;
+
+  update public.wallets set pending_balance=pending_balance-c.commission_total,
+    outstanding_adjustment_balance=outstanding_adjustment_balance-v_debt_offset,
+    available_balance=available_balance+v_available_credit,updated_at=now()
+  where id=v_wallet.id and pending_balance>=c.commission_total
+    and outstanding_adjustment_balance>=v_debt_offset;
+  if not found then raise exception 'wallet_balance_mismatch_during_release'; end if;
+  update public.order_item_commissions set commission_status='available',released_at=now()
+  where id=c.id and tenant_id=c.tenant_id and commission_status='pending';
+  if not found then raise exception 'commission_status_changed_during_release'; end if;
+  return c.commission_total;
+end;
+$;
+
+create or replace function public.release_due_commissions(p_tenant_id uuid default null)
+returns integer
+language plpgsql security definer set search_path=''
+as $
+declare r record; v_released integer:=0;
+begin
+  for r in
+    select c.id from public.order_item_commissions c
+    where c.commission_status='pending'
+      and (p_tenant_id is null or c.tenant_id=p_tenant_id)
+    order by c.created_at,c.id
+  loop
+    begin
+      if public.release_commission_to_available(r.id)>0 then v_released:=v_released+1; end if;
+    exception when others then
+      if sqlerrm not in ('commission_hold_not_elapsed','commission_blocked_by_return_or_dispute') then raise; end if;
+    end;
+  end loop;
+  return v_released;
+end;
+$;
+
+-- Payout settlement follows wallet -> payout lock order, then revalidates the payout row.
+create or replace function public.approve_payout_request(p_payout_request_id uuid,p_bank_transaction_reference text)
+returns void
+language plpgsql security definer set search_path=''
+as $
+declare v_wallet_id uuid; v_tenant_id uuid; w public.wallets%rowtype; p public.payout_requests%rowtype;
+begin
+  if length(trim(coalesce(p_bank_transaction_reference,'')))<4 then
+    raise exception 'bank_transaction_reference_required' using errcode='22023';
+  end if;
+  select wallet_id,tenant_id into v_wallet_id,v_tenant_id from public.payout_requests where id=p_payout_request_id;
+  if not found then raise exception 'payout_request_not_found'; end if;
+  select * into w from public.wallets where id=v_wallet_id and tenant_id=v_tenant_id for update;
+  if not found then raise exception 'wallet_not_found'; end if;
+  select * into p from public.payout_requests where id=p_payout_request_id and wallet_id=v_wallet_id and tenant_id=v_tenant_id for update;
+  if not found then raise exception 'payout_changed_during_settlement'; end if;
+  if p.status='paid' then
+    if p.transfer_reference=p_bank_transaction_reference then return; end if;
+    raise exception 'payout_already_paid_with_different_reference';
+  end if;
+  if p.status not in ('requested','approved','processing') then raise exception 'payout_status_not_payable'; end if;
+  if w.locked_balance<p.amount then raise exception 'locked_balance_mismatch'; end if;
+  insert into public.wallet_transactions(tenant_id,wallet_id,user_id,transaction_type,status,amount,description,idempotency_key,entry_direction,balance_bucket,entry_version,payout_request_id,posted_at)
+  values(p.tenant_id,p.wallet_id,p.user_id,'payout','posted',p.amount,'Payout settled','payout-paid:'||p.id,'debit','locked',2,p.id,now());
+  update public.wallets set locked_balance=locked_balance-p.amount,updated_at=now()
+  where id=w.id and locked_balance>=p.amount;
+  if not found then raise exception 'locked_balance_mismatch'; end if;
+  update public.payout_requests set status='paid',transfer_reference=p_bank_transaction_reference,paid_at=now(),
+    reviewed_at=coalesce(reviewed_at,now()) where id=p.id and tenant_id=p.tenant_id;
+end;
+$;
+
+-- Failed bank transfer: locked funds are returned to available; no bank transfer is initiated here.
+create or replace function public.unlock_failed_payout(p_payout_request_id uuid,p_failure_reference text,p_idempotency_key text)
+returns void
+language plpgsql security definer set search_path=''
+as $
+declare v_wallet_id uuid; v_tenant_id uuid; w public.wallets%rowtype; p public.payout_requests%rowtype;
+begin
+  if length(trim(coalesce(p_failure_reference,'')))<4 or length(trim(coalesce(p_idempotency_key,'')))<12 then
+    raise exception 'failure_reference_and_idempotency_required' using errcode='22023';
+  end if;
+  select wallet_id,tenant_id into v_wallet_id,v_tenant_id from public.payout_requests where id=p_payout_request_id;
+  if not found then raise exception 'payout_request_not_found'; end if;
+  select * into w from public.wallets where id=v_wallet_id and tenant_id=v_tenant_id for update;
+  if not found then raise exception 'wallet_not_found'; end if;
+  select * into p from public.payout_requests where id=p_payout_request_id and wallet_id=v_wallet_id and tenant_id=v_tenant_id for update;
+  if not found then raise exception 'payout_changed_during_unlock'; end if;
+  if p.status='rejected' then
+    if exists(select 1 from public.wallet_transactions where tenant_id=p.tenant_id and idempotency_key=p_idempotency_key||':available') then return; end if;
+    raise exception 'payout_already_rejected_without_matching_unlock';
+  end if;
+  if p.status not in ('approved','processing') then raise exception 'payout_not_in_transfer_state'; end if;
+  if w.locked_balance<p.amount then raise exception 'locked_balance_mismatch'; end if;
+  insert into public.wallet_transactions(tenant_id,wallet_id,user_id,transaction_type,status,amount,description,idempotency_key,entry_direction,balance_bucket,entry_version,payout_request_id,posted_at)
+  values
+    (p.tenant_id,p.wallet_id,p.user_id,'adjustment','posted',p.amount,'Failed payout unlocked from locked bucket',p_idempotency_key||':locked','debit','locked',2,p.id,now()),
+    (p.tenant_id,p.wallet_id,p.user_id,'adjustment','posted',p.amount,'Failed payout returned to available bucket',p_idempotency_key||':available','credit','available',2,p.id,now());
+  update public.wallets set locked_balance=locked_balance-p.amount,available_balance=available_balance+p.amount,updated_at=now()
+  where id=w.id and locked_balance>=p.amount;
+  if not found then raise exception 'wallet_balance_mismatch_during_unlock'; end if;
+  update public.payout_requests set status='rejected',rejection_reason='Transfer failed: '||p_failure_reference,
+    reviewed_at=coalesce(reviewed_at,now()) where id=p.id and tenant_id=p.tenant_id;
+end;
+$;
+
+-- Pending commission can only be reversed for a cancelled order with no shipment record.
+create or replace function public.reverse_pending_commission(p_commission_id uuid,p_idempotency_key text)
+returns numeric
+language plpgsql security definer set search_path=''
+as $
+declare v_tenant_id uuid; v_reseller_id uuid; w public.wallets%rowtype;
+  c public.order_item_commissions%rowtype; v_order_status text;
+begin
+  if length(trim(coalesce(p_idempotency_key,'')))<12 then raise exception 'valid_idempotency_key_required' using errcode='22023'; end if;
+  select tenant_id,reseller_id into v_tenant_id,v_reseller_id from public.order_item_commissions where id=p_commission_id;
+  if not found then raise exception 'commission_not_found'; end if;
+  select * into w from public.wallets where tenant_id=v_tenant_id and user_id=v_reseller_id for update;
+  if not found then raise exception 'wallet_not_found'; end if;
+  select * into c from public.order_item_commissions where id=p_commission_id and tenant_id=v_tenant_id and reseller_id=v_reseller_id for update;
+  if not found then raise exception 'commission_changed_during_reversal'; end if;
+  if c.commission_status='reversed' then
+    if exists(select 1 from public.wallet_transactions where tenant_id=c.tenant_id and idempotency_key=p_idempotency_key) then return 0; end if;
+    raise exception 'commission_already_reversed';
+  end if;
+  if c.commission_status<>'pending' then raise exception 'commission_not_pending'; end if;
+  select status into v_order_status from public.orders where id=c.order_id and tenant_id=c.tenant_id;
+  if v_order_status<>'cancelled' then raise exception 'order_not_cancelled'; end if;
+  if exists(select 1 from public.shipments where tenant_id=c.tenant_id and order_id=c.order_id) then
+    raise exception 'commission_cannot_reverse_after_shipment_record';
+  end if;
+  if w.pending_balance<c.commission_total then raise exception 'pending_balance_mismatch'; end if;
+  if c.commission_total>0 then
+    insert into public.wallet_transactions(tenant_id,wallet_id,user_id,order_id,transaction_type,status,amount,description,idempotency_key,entry_direction,balance_bucket,entry_version,order_item_commission_id,posted_at)
+    values(c.tenant_id,w.id,c.reseller_id,c.order_id,'reversal','posted',c.commission_total,
+      'Pending commission reversed after order cancellation',p_idempotency_key,'debit','pending',2,c.id,now());
+    update public.wallets set pending_balance=pending_balance-c.commission_total,updated_at=now()
+    where id=w.id and pending_balance>=c.commission_total;
+    if not found then raise exception 'wallet_balance_mismatch'; end if;
+  end if;
+  update public.order_item_commissions set commission_status='reversed',reversed_amount=commission_total
+  where id=c.id and tenant_id=c.tenant_id and commission_status='pending';
+  if not found then raise exception 'commission_status_changed_during_reversal'; end if;
+  return c.commission_total;
+end;
+$;
+
+-- Released commission reversal, always wallet -> commission -> return lock order.
+create or replace function public.reverse_released_commission(
+  p_commission_id uuid,p_return_request_id uuid,p_returned_quantity integer,p_idempotency_key text
+)
+returns numeric
+language plpgsql security definer set search_path=''
+as $
+declare v_tenant_id uuid; v_reseller_id uuid; w public.wallets%rowtype;
+  c public.order_item_commissions%rowtype; rr public.return_requests%rowtype;
+  v_reverse numeric(14,2); v_available_debit numeric(14,2); v_debt_credit numeric(14,2);
+begin
+  if p_returned_quantity is null or p_returned_quantity<=0 or length(trim(coalesce(p_idempotency_key,'')))<12 then
+    raise exception 'invalid_reversal_request' using errcode='22023';
+  end if;
+  select tenant_id,reseller_id into v_tenant_id,v_reseller_id from public.order_item_commissions where id=p_commission_id;
+  if not found then raise exception 'commission_not_found'; end if;
+  select * into w from public.wallets where tenant_id=v_tenant_id and user_id=v_reseller_id for update;
+  if not found then raise exception 'wallet_not_found'; end if;
+  select * into c from public.order_item_commissions where id=p_commission_id and tenant_id=v_tenant_id and reseller_id=v_reseller_id for update;
+  if not found then raise exception 'commission_changed_during_reversal'; end if;
+  select * into rr from public.return_requests where id=p_return_request_id and tenant_id=c.tenant_id and order_id=c.order_id for update;
+  if not found or rr.status not in ('approved','resolved') then raise exception 'return_not_approved'; end if;
+  if exists(select 1 from public.wallet_transactions where tenant_id=c.tenant_id and idempotency_key like p_idempotency_key||':%') then
+    if (select coalesce(sum(amount),0) from public.wallet_transactions where tenant_id=c.tenant_id and idempotency_key like p_idempotency_key||':%')
+       <> (select coalesce(sum(amount),0) from public.wallet_transactions where tenant_id=c.tenant_id and order_item_commission_id=c.id and return_request_id=rr.id and idempotency_key like p_idempotency_key||':%')
+      then raise exception 'incomplete_reversal_ledger_event'; end if;
+    return 0;
+  end if;
+  if p_returned_quantity>(select coalesce(sum(ri.quantity),0) from public.return_items ri
+      where ri.tenant_id=c.tenant_id and ri.return_request_id=rr.id and ri.order_item_id=c.order_item_id) then
+    raise exception 'returned_quantity_exceeds_approved_items';
+  end if;
+  if c.commission_status not in ('available','partially_reversed') then raise exception 'commission_not_released'; end if;
+  v_reverse:=round(c.commission_per_unit*p_returned_quantity,2);
+  if v_reverse<=0 or c.reversed_amount+v_reverse>c.commission_total then raise exception 'invalid_reversal_amount'; end if;
+  v_available_debit:=least(w.available_balance,v_reverse);
+  v_debt_credit:=v_reverse-v_available_debit;
+  if v_available_debit>0 then
+    insert into public.wallet_transactions(tenant_id,wallet_id,user_id,order_id,transaction_type,status,amount,description,idempotency_key,entry_direction,balance_bucket,entry_version,order_item_commission_id,return_request_id,posted_at)
+    values(c.tenant_id,w.id,c.reseller_id,c.order_id,'reversal','posted',v_available_debit,'Returned commission reversal',p_idempotency_key||':available','debit','available',2,c.id,rr.id,now());
+  end if;
+  if v_debt_credit>0 then
+    insert into public.wallet_transactions(tenant_id,wallet_id,user_id,order_id,transaction_type,status,amount,description,idempotency_key,entry_direction,balance_bucket,entry_version,order_item_commission_id,return_request_id,posted_at)
+    values(c.tenant_id,w.id,c.reseller_id,c.order_id,'reversal','posted',v_debt_credit,'Outstanding adjustment from returned commission',p_idempotency_key||':debt','credit','outstanding_adjustment',2,c.id,rr.id,now());
+  end if;
+  update public.wallets set available_balance=available_balance-v_available_debit,
+    outstanding_adjustment_balance=outstanding_adjustment_balance+v_debt_credit,updated_at=now()
+  where id=w.id and available_balance>=v_available_debit;
+  if not found then raise exception 'wallet_balance_mismatch'; end if;
+  update public.order_item_commissions set reversed_amount=reversed_amount+v_reverse,
+    commission_status=case when reversed_amount+v_reverse>=commission_total then 'reversed' else 'partially_reversed' end,
+    return_request_id=rr.id where id=c.id and tenant_id=c.tenant_id;
+  return v_reverse;
+end;
+$;
+
+-- All financial RPCs are backend-only. Worker validates JWT, tenant/object scope and human reviewer approval.
+revoke all on function public.release_commission_to_available(uuid) from public,anon,authenticated;
+revoke all on function public.release_due_commissions(uuid) from public,anon,authenticated;
+revoke all on function public.create_payout_request(uuid,uuid,numeric,text,text,text,text) from public,anon,authenticated;
+revoke all on function public.approve_payout_request(uuid,text) from public,anon,authenticated;
+revoke all on function public.unlock_failed_payout(uuid,text,text) from public,anon,authenticated;
+revoke all on function public.reverse_pending_commission(uuid,text) from public,anon,authenticated;
+revoke all on function public.reverse_released_commission(uuid,uuid,integer,text) from public,anon,authenticated;
+grant execute on function public.release_commission_to_available(uuid) to service_role;
+grant execute on function public.release_due_commissions(uuid) to service_role;
+grant execute on function public.create_payout_request(uuid,uuid,numeric,text,text,text,text) to service_role;
+grant execute on function public.approve_payout_request(uuid,text) to service_role;
+grant execute on function public.unlock_failed_payout(uuid,text,text) to service_role;
+grant execute on function public.reverse_pending_commission(uuid,text) to service_role;
 grant execute on function public.reverse_released_commission(uuid,uuid,integer,text) to service_role;
 
 commit;
