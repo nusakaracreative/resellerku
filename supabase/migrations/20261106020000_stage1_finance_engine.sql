@@ -773,7 +773,18 @@ begin
   select count(*) into v_existing_rows from public.wallet_transactions
   where tenant_id=c.tenant_id and idempotency_key like 'commission-release:'||c.id::text||':%';
   if v_existing_rows>0 then
-    if v_existing_rows<>v_expected_rows then raise exception 'partial_release_ledger_event'; end if;
+    if v_existing_rows<>v_expected_rows
+      or not exists(select 1 from public.wallet_transactions
+        where tenant_id=c.tenant_id and idempotency_key='commission-release:'||c.id||':pending'
+          and amount=c.commission_total and entry_version=2 and entry_direction='debit' and balance_bucket='pending')
+      or (v_debt_offset>0 and not exists(select 1 from public.wallet_transactions
+        where tenant_id=c.tenant_id and idempotency_key='commission-release:'||c.id||':debt'
+          and amount=v_debt_offset and entry_version=2 and entry_direction='debit' and balance_bucket='outstanding_adjustment'))
+      or (v_available_credit>0 and not exists(select 1 from public.wallet_transactions
+        where tenant_id=c.tenant_id and idempotency_key='commission-release:'||c.id||':available'
+          and amount=v_available_credit and entry_version=2 and entry_direction='credit' and balance_bucket='available')) then
+      raise exception 'incomplete_or_inconsistent_release_ledger_event';
+    end if;
     update public.order_item_commissions set commission_status='available',released_at=coalesce(released_at,now())
     where id=c.id and tenant_id=c.tenant_id and commission_status='pending';
     return 0;
@@ -878,7 +889,14 @@ begin
   select * into p from public.payout_requests where id=p_payout_request_id and wallet_id=v_wallet_id and tenant_id=v_tenant_id for update;
   if not found then raise exception 'payout_changed_during_unlock'; end if;
   if p.status='rejected' then
-    if exists(select 1 from public.wallet_transactions where tenant_id=p.tenant_id and idempotency_key=p_idempotency_key||':available') then return; end if;
+    if (select count(*) from public.wallet_transactions
+        where tenant_id=p.tenant_id and idempotency_key in (p_idempotency_key||':locked',p_idempotency_key||':available'))=2
+      and exists(select 1 from public.wallet_transactions where tenant_id=p.tenant_id
+        and idempotency_key=p_idempotency_key||':locked' and amount=p.amount
+        and entry_direction='debit' and balance_bucket='locked' and entry_version=2)
+      and exists(select 1 from public.wallet_transactions where tenant_id=p.tenant_id
+        and idempotency_key=p_idempotency_key||':available' and amount=p.amount
+        and entry_direction='credit' and balance_bucket='available' and entry_version=2) then return; end if;
     raise exception 'payout_already_rejected_without_matching_unlock';
   end if;
   if p.status not in ('approved','processing') then raise exception 'payout_not_in_transfer_state'; end if;
@@ -910,10 +928,7 @@ begin
   if not found then raise exception 'wallet_not_found'; end if;
   select * into c from public.order_item_commissions where id=p_commission_id and tenant_id=v_tenant_id and reseller_id=v_reseller_id for update;
   if not found then raise exception 'commission_changed_during_reversal'; end if;
-  if c.commission_status='reversed' then
-    if exists(select 1 from public.wallet_transactions where tenant_id=c.tenant_id and idempotency_key=p_idempotency_key) then return 0; end if;
-    raise exception 'commission_already_reversed';
-  end if;
+  if c.commission_status='reversed' then return 0; end if;
   if c.commission_status<>'pending' then raise exception 'commission_not_pending'; end if;
   select status into v_order_status from public.orders where id=c.order_id and tenant_id=c.tenant_id;
   if v_order_status<>'cancelled' then raise exception 'order_not_cancelled'; end if;
