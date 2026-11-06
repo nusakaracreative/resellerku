@@ -16,16 +16,16 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(20);
+select extensions.plan(20);
 
 -- Schema contract.
-select ok(
+select extensions.ok(
   exists(select 1 from information_schema.columns
     where table_schema='public' and table_name='wallets'
       and column_name='outstanding_adjustment_balance'),
   'wallets has outstanding_adjustment_balance'
 );
-select ok(
+select extensions.ok(
   exists(select 1 from information_schema.columns
     where table_schema='public' and table_name='order_item_commissions'
       and column_name='commission_status')
@@ -37,7 +37,7 @@ select ok(
       and column_name='reversed_amount'),
   'commission snapshot has lifecycle, hold-period and reversal fields'
 );
-select ok(
+select extensions.ok(
   exists(select 1 from information_schema.columns
     where table_schema='public' and table_name='wallet_transactions'
       and column_name='entry_direction')
@@ -58,7 +58,7 @@ select ok(
       and column_name='return_request_id'),
   'wallet_transactions has Stage 1 ledger metadata columns'
 );
-select ok(
+select extensions.ok(
   exists(select 1 from pg_constraint
     where conrelid='public.wallet_transactions'::regclass
       and conname='wallet_transactions_direction_bucket_pair_check'),
@@ -66,31 +66,31 @@ select ok(
 );
 
 -- RPC existence and privilege contract.
-select ok(to_regprocedure('public.release_due_commissions(uuid)') is not null,
+select extensions.ok(to_regprocedure('public.release_due_commissions(uuid)') is not null,
   'release_due_commissions(uuid) exists');
-select ok(to_regprocedure('public.create_payout_request(uuid,uuid,numeric,text,text,text,text)') is not null,
+select extensions.ok(to_regprocedure('public.create_payout_request(uuid,uuid,numeric,text,text,text,text)') is not null,
   'create_payout_request(...) exists');
-select ok(to_regprocedure('public.approve_payout_request(uuid,text)') is not null,
+select extensions.ok(to_regprocedure('public.approve_payout_request(uuid,text)') is not null,
   'approve_payout_request(uuid,text) exists');
-select ok(to_regprocedure('public.reverse_released_commission(uuid,uuid,integer,text)') is not null,
+select extensions.ok(to_regprocedure('public.reverse_released_commission(uuid,uuid,integer,text)') is not null,
   'reverse_released_commission(...) exists');
 
-select ok(not has_function_privilege('authenticated','public.release_due_commissions(uuid)','EXECUTE'),
+select extensions.ok(not has_function_privilege('authenticated','public.release_due_commissions(uuid)','EXECUTE'),
   'authenticated cannot execute release_due_commissions');
-select ok(not has_function_privilege('authenticated','public.create_payout_request(uuid,uuid,numeric,text,text,text,text)','EXECUTE'),
+select extensions.ok(not has_function_privilege('authenticated','public.create_payout_request(uuid,uuid,numeric,text,text,text,text)','EXECUTE'),
   'authenticated cannot execute create_payout_request');
-select ok(not has_function_privilege('authenticated','public.approve_payout_request(uuid,text)','EXECUTE'),
+select extensions.ok(not has_function_privilege('authenticated','public.approve_payout_request(uuid,text)','EXECUTE'),
   'authenticated cannot execute approve_payout_request');
-select ok(not has_function_privilege('authenticated','public.reverse_released_commission(uuid,uuid,integer,text)','EXECUTE'),
+select extensions.ok(not has_function_privilege('authenticated','public.reverse_released_commission(uuid,uuid,integer,text)','EXECUTE'),
   'authenticated cannot execute reverse_released_commission');
 
-select ok(has_function_privilege('service_role','public.release_due_commissions(uuid)','EXECUTE'),
+select extensions.ok(has_function_privilege('service_role','public.release_due_commissions(uuid)','EXECUTE'),
   'service_role can execute release_due_commissions');
-select ok(has_function_privilege('service_role','public.create_payout_request(uuid,uuid,numeric,text,text,text,text)','EXECUTE'),
+select extensions.ok(has_function_privilege('service_role','public.create_payout_request(uuid,uuid,numeric,text,text,text,text)','EXECUTE'),
   'service_role can execute create_payout_request');
-select ok(has_function_privilege('service_role','public.approve_payout_request(uuid,text)','EXECUTE'),
+select extensions.ok(has_function_privilege('service_role','public.approve_payout_request(uuid,text)','EXECUTE'),
   'service_role can execute approve_payout_request');
-select ok(has_function_privilege('service_role','public.reverse_released_commission(uuid,uuid,integer,text)','EXECUTE'),
+select extensions.ok(has_function_privilege('service_role','public.reverse_released_commission(uuid,uuid,integer,text)','EXECUTE'),
   'service_role can execute reverse_released_commission');
 
 -- Adversarial cross-tenant attempt:
@@ -102,12 +102,12 @@ select set_config('request.jwt.claim.sub','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 select set_config('request.jwt.claims',
   '{"sub":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","role":"authenticated","tenant_id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}',true);
 
-select throws_ok(
+select extensions.throws_ok(
   $$select public.release_due_commissions('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid)$$,
   '42501', null,
   'Tenant B user cannot invoke Tenant A commission release RPC'
 );
-select throws_ok(
+select extensions.throws_ok(
   $$select public.create_payout_request(
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,
     'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid,
@@ -115,13 +115,13 @@ select throws_ok(
   '42501', null,
   'Tenant B user cannot invoke payout RPC against Tenant A tenant context'
 );
-select throws_ok(
+select extensions.throws_ok(
   $$select public.approve_payout_request(
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,'BANK-REF-TEST')$$,
   '42501', null,
   'Tenant B user cannot approve a Tenant A payout'
 );
-select throws_ok(
+select extensions.throws_ok(
   $$select public.reverse_released_commission(
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,
@@ -132,5 +132,5 @@ select throws_ok(
 
 reset role;
 
-select * from finish();
+select * from extensions.finish();
 rollback;
