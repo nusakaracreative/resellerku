@@ -16,7 +16,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select extensions.plan(37);
+select extensions.plan(38);
 
 -- Schema contract.
 select extensions.ok(
@@ -151,6 +151,12 @@ select extensions.ok(has_function_privilege('service_role','public.unlock_failed
   'service_role can execute unlock_failed_payout');
 select extensions.ok(has_function_privilege('service_role','public.reverse_pending_commission(uuid,text)','EXECUTE'),
   'service_role can execute reverse_pending_commission');
+
+select extensions.ok(
+  position('pending_reversal_idempotency_conflict' in
+    lower(pg_get_functiondef('public.reverse_pending_commission(uuid,text)'::regprocedure))) > 0,
+  'reverse_pending_commission validates the matching ledger event on retry'
+);
 
 -- Adversarial cross-tenant attempt:
 -- Tenant B's authenticated user supplies Tenant A object IDs/tenant context.
