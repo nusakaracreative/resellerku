@@ -16,7 +16,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select extensions.plan(33);
+select extensions.plan(37);
 
 -- Schema contract.
 select extensions.ok(
@@ -72,6 +72,38 @@ select extensions.ok(
     where tgrelid='public.wallet_transactions'::regclass
       and tgname='wallet_transactions_append_only_guard' and not tgisinternal),
   'wallet_transactions append-only trigger exists'
+);
+
+-- Auto-netting contract: debt is reduced before any residual is credited to available.
+select extensions.ok(
+  position('least(v_wallet.outstanding_adjustment_balance,c.commission_total)' in
+    lower(pg_get_functiondef('public.release_commission_to_available(uuid)'::regprocedure))) > 0,
+  'release function caps debt netting at outstanding debt and commission amount'
+);
+select extensions.ok(
+  position('automatic outstanding adjustment repayment' in
+    lower(pg_get_functiondef('public.release_commission_to_available(uuid)'::regprocedure))) > 0
+  and position('commission became available after debt netting' in
+    lower(pg_get_functiondef('public.release_commission_to_available(uuid)'::regprocedure))) > 0,
+  'release function writes debt-repayment and residual-available ledger legs'
+);
+
+-- Exercise the same database trigger function used by wallet_transactions.
+-- A temporary probe avoids depending on business fixtures in the disposable test DB.
+create temporary table ledger_append_only_probe(id integer primary key, amount integer not null);
+insert into ledger_append_only_probe values (1, 100);
+create trigger ledger_append_only_probe_guard
+before update or delete on ledger_append_only_probe
+for each row execute function public.reject_wallet_transaction_mutation();
+select extensions.throws_ok(
+  $update pg_temp.ledger_append_only_probe set amount=200 where id=1$,
+  '55000', 'wallet_transactions_append_only',
+  'append-only trigger function rejects UPDATE'
+);
+select extensions.throws_ok(
+  $delete from pg_temp.ledger_append_only_probe where id=1$,
+  '55000', 'wallet_transactions_append_only',
+  'append-only trigger function rejects DELETE'
 );
 
 -- RPC existence and privilege contract.
@@ -149,27 +181,27 @@ select extensions.throws_ok(
   'Tenant B user cannot approve a Tenant A payout'
 );
 select extensions.throws_ok(
-  $select public.reverse_released_commission(
+  $$select public.reverse_released_commission(
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,
-    1,'cross-tenant-reversal-key-0001')$,
+    1,'cross-tenant-reversal-key-0001')$$,
   '42501', null,
   'Tenant B user cannot reverse a Tenant A commission'
 );
 select extensions.throws_ok(
-  $select public.release_commission_to_available('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid)$,
+  $$select public.release_commission_to_available('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid)$$,
   '42501', null,
   'Tenant B user cannot call commission release helper'
 );
 select extensions.throws_ok(
-  $select public.unlock_failed_payout(
-    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,'FAIL-REF','cross-tenant-unlock-key-0001')$,
+  $$select public.unlock_failed_payout(
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,'FAIL-REF','cross-tenant-unlock-key-0001')$$,
   '42501', null,
   'Tenant B user cannot unlock a Tenant A payout'
 );
 select extensions.throws_ok(
-  $select public.reverse_pending_commission(
-    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,'cross-tenant-pending-key-0001')$,
+  $$select public.reverse_pending_commission(
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,'cross-tenant-pending-key-0001')$$,
   '42501', null,
   'Tenant B user cannot reverse a Tenant A pending commission'
 );
