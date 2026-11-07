@@ -102,11 +102,11 @@ returns trigger
 language plpgsql
 security definer
 set search_path = ''
-as $
+as $$
 begin
   raise exception 'wallet_transactions_append_only' using errcode = '55000';
 end;
-$;
+$$;
 revoke all on function public.reject_wallet_transaction_mutation() from public,anon,authenticated;
 drop trigger if exists wallet_transactions_append_only_guard on public.wallet_transactions;
 create trigger wallet_transactions_append_only_guard
@@ -724,7 +724,7 @@ grant execute on function public.reverse_released_commission(uuid,uuid,integer,t
 create or replace function public.release_commission_to_available(p_commission_id uuid)
 returns numeric
 language plpgsql security definer set search_path=''
-as $
+as $$
 declare
   v_tenant_id uuid; v_reseller_id uuid; v_wallet public.wallets%rowtype;
   c public.order_item_commissions%rowtype; v_due_at timestamptz;
@@ -816,12 +816,12 @@ begin
   if not found then raise exception 'commission_status_changed_during_release'; end if;
   return c.commission_total;
 end;
-$;
+$$;
 
 create or replace function public.release_due_commissions(p_tenant_id uuid default null)
 returns integer
 language plpgsql security definer set search_path=''
-as $
+as $$
 declare r record; v_released integer:=0;
 begin
   for r in
@@ -838,13 +838,13 @@ begin
   end loop;
   return v_released;
 end;
-$;
+$$;
 
 -- Payout settlement follows wallet -> payout lock order, then revalidates the payout row.
 create or replace function public.approve_payout_request(p_payout_request_id uuid,p_bank_transaction_reference text)
 returns void
 language plpgsql security definer set search_path=''
-as $
+as $$
 declare v_wallet_id uuid; v_tenant_id uuid; w public.wallets%rowtype; p public.payout_requests%rowtype;
 begin
   if length(trim(coalesce(p_bank_transaction_reference,'')))<4 then
@@ -870,13 +870,13 @@ begin
   update public.payout_requests set status='paid',transfer_reference=p_bank_transaction_reference,paid_at=now(),
     reviewed_at=coalesce(reviewed_at,now()) where id=p.id and tenant_id=p.tenant_id;
 end;
-$;
+$$;
 
 -- Failed bank transfer: locked funds are returned to available; no bank transfer is initiated here.
 create or replace function public.unlock_failed_payout(p_payout_request_id uuid,p_failure_reference text,p_idempotency_key text)
 returns void
 language plpgsql security definer set search_path=''
-as $
+as $$
 declare v_wallet_id uuid; v_tenant_id uuid; w public.wallets%rowtype; p public.payout_requests%rowtype;
 begin
   if length(trim(coalesce(p_failure_reference,'')))<4 or length(trim(coalesce(p_idempotency_key,'')))<12 then
@@ -911,13 +911,13 @@ begin
   update public.payout_requests set status='rejected',rejection_reason='Transfer failed: '||p_failure_reference,
     reviewed_at=coalesce(reviewed_at,now()) where id=p.id and tenant_id=p.tenant_id;
 end;
-$;
+$$;
 
 -- Pending commission can only be reversed for a cancelled order with no shipment record.
 create or replace function public.reverse_pending_commission(p_commission_id uuid,p_idempotency_key text)
 returns numeric
 language plpgsql security definer set search_path=''
-as $
+as $$
 declare v_tenant_id uuid; v_reseller_id uuid; w public.wallets%rowtype;
   c public.order_item_commissions%rowtype; v_order_status text;
 begin
@@ -949,7 +949,7 @@ begin
   if not found then raise exception 'commission_status_changed_during_reversal'; end if;
   return c.commission_total;
 end;
-$;
+$$;
 
 -- Released commission reversal, always wallet -> commission -> return lock order.
 create or replace function public.reverse_released_commission(
@@ -957,7 +957,7 @@ create or replace function public.reverse_released_commission(
 )
 returns numeric
 language plpgsql security definer set search_path=''
-as $
+as $$
 declare v_tenant_id uuid; v_reseller_id uuid; w public.wallets%rowtype;
   c public.order_item_commissions%rowtype; rr public.return_requests%rowtype;
   v_reverse numeric(14,2); v_available_debit numeric(14,2); v_debt_credit numeric(14,2);
@@ -1005,7 +1005,7 @@ begin
     return_request_id=rr.id where id=c.id and tenant_id=c.tenant_id;
   return v_reverse;
 end;
-$;
+$$;
 
 -- All financial RPCs are backend-only. Worker validates JWT, tenant/object scope and human reviewer approval.
 revoke all on function public.release_commission_to_available(uuid) from public,anon,authenticated;
