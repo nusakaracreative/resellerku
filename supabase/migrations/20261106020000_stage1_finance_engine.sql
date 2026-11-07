@@ -920,6 +920,7 @@ language plpgsql security definer set search_path=''
 as $$
 declare v_tenant_id uuid; v_reseller_id uuid; w public.wallets%rowtype;
   c public.order_item_commissions%rowtype; v_order_status text;
+  v_existing_count integer; v_existing_amount numeric(14,2);
 begin
   if length(trim(coalesce(p_idempotency_key,'')))<12 then raise exception 'valid_idempotency_key_required' using errcode='22023'; end if;
   select tenant_id,reseller_id into v_tenant_id,v_reseller_id from public.order_item_commissions where id=p_commission_id;
@@ -928,8 +929,21 @@ begin
   if not found then raise exception 'wallet_not_found'; end if;
   select * into c from public.order_item_commissions where id=p_commission_id and tenant_id=v_tenant_id and reseller_id=v_reseller_id for update;
   if not found then raise exception 'commission_changed_during_reversal'; end if;
-  if c.commission_status='reversed' then return 0; end if;
+  if c.commission_status='reversed' then
+    if c.commission_total=0 then return 0; end if;
+    select count(*),coalesce(sum(amount),0) into v_existing_count,v_existing_amount
+    from public.wallet_transactions
+    where tenant_id=c.tenant_id and idempotency_key=p_idempotency_key
+      and order_item_commission_id=c.id and entry_version=2
+      and entry_direction='debit' and balance_bucket='pending';
+    if v_existing_count=1 and v_existing_amount=c.commission_total then return 0; end if;
+    raise exception 'pending_reversal_idempotency_conflict';
+  end if;
   if c.commission_status<>'pending' then raise exception 'commission_not_pending'; end if;
+  if exists(select 1 from public.wallet_transactions
+    where tenant_id=c.tenant_id and idempotency_key=p_idempotency_key) then
+    raise exception 'pending_reversal_idempotency_key_conflict';
+  end if;
   select status into v_order_status from public.orders where id=c.order_id and tenant_id=c.tenant_id;
   if v_order_status<>'cancelled' then raise exception 'order_not_cancelled'; end if;
   if exists(select 1 from public.shipments where tenant_id=c.tenant_id and order_id=c.order_id) then
